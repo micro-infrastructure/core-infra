@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Service
+metadata:
+    name: core-infra
+    namespace: process-core
+    labels:
+        app: core-infra
+spec:
+    selector:
+        app: core-infra
+    ports:
+    - port: 4200
+      targetPort: 4200
+      nodePort: 30000
+    type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-infra-deployment
+  namespace: process-core
+  labels:
+      name: core-infra
+spec:
+  selector:
+    matchLabels:
+      app: core-infra
+  template:
+    metadata:
+      labels:
+        app: core-infra
+    spec:
+      nodeSelector:
+        type: core
+      hostname: infra
+      volumes:
+      - name: vault
+        secret:
+            secretName: vault
+      containers:
+      - name: kubectl
+        image: roffe/kubectl
+        volumeMounts:
+        - name: vault
+          mountPath: /assets
+          readOnly: true
+        command:
+        - kubectl
+        - --kubeconfig
+        - /assets/config
+        - proxy
+        - --port=8080
+      - name: web
+        image: recap/process-core-infra:v0.1
+        volumeMounts:
+        - name: vault
+          mountPath: /assets
+          readOnly: true
+        env:
+          - name: DBPASS
+            valueFrom:
+                secretKeyRef:
+                    name: vault
+                    key: dbpass
+        ports:
+            - containerPort: 4200
+        imagePullPolicy: Always
+        command: ["/bin/sh", "-c"]
+        args: ["sleep 10 && node app.js -m mongo -k /assets/privateKey.txt -c /assets/publicKey.txt --dbpass $DBPASS -h data01.process-project.eu -s /assets/certificate.txt"]
