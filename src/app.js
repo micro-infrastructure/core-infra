@@ -587,33 +587,46 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 
 	const containers = sshContainers.concat(lgContainers)
 
-	// generate k8s YAML deployment
-	const deployment = createDeployment({
-		name: infra.name,
-		namespace: req.user.namespace,
-		location: infra.location
-	}, volumes, containers, initContainers)
 
 	let yml = ""
 	services.forEach(s => {
 		yml += YAML.stringify(s)
 		yml += "---\n"
 	})
-	yml += YAML.stringify(deployment)
-	console.log(yml)
 	
 	if (!options.noDeploy) {
 		try{
+
+			// create k8s services
+			// wait for all async calls to return
+			await Promise.all(services.map(async s => {
+					kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + s.metadata.name, (err, res) => {
+						if (err) console.log(err)
+					})
+					const r = await kubeapi.post('namespaces/' + req.user.namespace + '/services', s)
+					const serviceName = r.metadata.labels.type.toUpperCase() + "_SERVICE"
+					const host = 'lobcder.process-project.eu:' + r.spec.ports[0].nodePort
+					containers.forEach(c => {
+						c.env.push({
+							name: serviceName,
+							value: host
+						})
+					})
+				})
+			)
+			// generate k8s YAML deployment
+			const deployment = createDeployment({
+				name: infra.name,
+				namespace: req.user.namespace,
+				location: infra.location
+			}, volumes, containers, initContainers)
+
+			yml += YAML.stringify(deployment)
+			console.log(yml)
+			
 			// create k8s deployment
 			await kubeext.delete('namespaces/' + req.user.namespace + '/deployments', deployment)
 			await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
-			// create k8s services
-			services.forEach(async s => {
-				kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + s.metadata.name, (err, res) => {
-					if (err) console.log(err)
-				})
-				await kubeapi.post('namespaces/' + req.user.namespace + '/services', s)
-			})
 		} catch (err) {
 			console.log("Error deploying: " + JSON.stringify(err))
 		}
