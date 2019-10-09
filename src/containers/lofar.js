@@ -10,13 +10,14 @@ function handler(details) {
 			'publicKey': encodeBase64(details.user.keys.raw.public)
 		}
 	}
-	
+
+	const image = details.image || "recap/adaptor-lofar-stage"
 	const users = encodeBase64(JSON.stringify(user))
 	let cmd = "sleep 15 && python src/app.py"
 	const appConfig = encodeBase64(JSON.stringify(details.descriptions))
 	const o = {
 				"name": details.name,
-				"image": "recap/adaptor-lofar-stage",
+				"image": image,
 				"imagePullPolicy": "Always",
 				"ports": [
 					{

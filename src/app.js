@@ -24,6 +24,7 @@ const cmdOptions = [
 	{ name: 'cert', alias: 's', type: String},
 	{ name: 'port', alias: 'p', type: Number},
 	{ name: 'dbpass', type: String},
+	{ name: 'noDeploy', type: Boolean},
 	{ name: 'host', alias: 'h', type: String}
 ]
 
@@ -258,6 +259,10 @@ function isEmpty(arr) {
 }
 
 function checkToken(req, res, next) {
+	if (req.user) {
+		next()
+		return
+	}
 	const token = req.headers['x-access-token']
 	if (!token) {
 		res.status(403).send()
@@ -291,6 +296,7 @@ function checkAdminToken(req, res, next) {
 			res.status(403).send()
 			return
 		}
+		console.log(decoded)
 		if (!(decoded.user == 'admin')) {
 			res.status(403).send()
 			return
@@ -300,7 +306,7 @@ function checkAdminToken(req, res, next) {
 	})
 }
 
-app.get(api + '/test', checkToken, async (req, res) => {
+app.get(api + '/test', [checkAdminToken, checkToken], async (req, res) => {
 	res.status(200).send(req.user)
 })
 
@@ -429,7 +435,7 @@ function copySshId(adaptor) {
 			host: adaptor.host,
 			username: adaptor.user,
 			port: 22,
-			//privateKey: req.user.keys.private
+			privateKey: adaptor.privateKey ? decodeBase64(adaptor.privateKey) : null,
 			password: adaptor.password || adaptor.pwd
 		})
 	})
@@ -480,7 +486,7 @@ const getNextPort = function() {
 	}
 }()
 
-app.post(api + '/infrastructure', checkToken, async(req, res) => {
+app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 	const infra = req.body
 	let cntPort = 3001
 	const response = {}
@@ -534,6 +540,8 @@ app.post(api + '/infrastructure', checkToken, async(req, res) => {
 
 	const sshContainers = await Promise.all(sshPromises)
 
+
+	const ports = {}
 	async function processContainers(c, index) {
 		if(!moduleHolder[c.type]) {
 			console.log("[ERROR] " + c.type + " not found.")
@@ -544,6 +552,7 @@ app.post(api + '/infrastructure', checkToken, async(req, res) => {
 		c.user = req.user
 		c.env = c.env || {}
 		c.containerPort = c.port ||  getNextPort()
+		ports[c.name] = c.containerPort
 		const u = moduleHolder[c.type](c)
 		if(c.service) {
 			const s = createService({
@@ -553,6 +562,7 @@ app.post(api + '/infrastructure', checkToken, async(req, res) => {
 				targetPort: c.service.targetPort || c.containerPort,
 				type: c.type
 			})
+			ports[c.name] = c.service.targetPort || c.containerPort
 			services.push(s)
 		}
 		return u
@@ -561,6 +571,15 @@ app.post(api + '/infrastructure', checkToken, async(req, res) => {
 	// create logic containers
 	const lgPromises = infra.logicContainers.map(processContainers)
 	const lgContainers = await Promise.all(lgPromises)
+	lgContainers.forEach(c => {
+			Object.keys(ports).forEach(k => {
+				const v = ports[k]
+				c.env.push({
+					name: k.toUpperCase() + "_HOST",
+					value: "127.0.0.1:" + v
+				})
+			})
+	})
 	
 	// create init containers
 	const initPromises = infra.initContainers.map(processContainers)
@@ -583,19 +602,21 @@ app.post(api + '/infrastructure', checkToken, async(req, res) => {
 	yml += YAML.stringify(deployment)
 	console.log(yml)
 	
-	try{
-		// create k8s deployment
-		await kubeext.delete('namespaces/' + req.user.namespace + '/deployments', deployment)
-		await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
-		// create k8s services
-		services.forEach(async s => {
-			kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + s.metadata.name, (err, res) => {
-				if (err) console.log(err)
+	if (!options.noDeploy) {
+		try{
+			// create k8s deployment
+			await kubeext.delete('namespaces/' + req.user.namespace + '/deployments', deployment)
+			await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
+			// create k8s services
+			services.forEach(async s => {
+				kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + s.metadata.name, (err, res) => {
+					if (err) console.log(err)
+				})
+				await kubeapi.post('namespaces/' + req.user.namespace + '/services', s)
 			})
-			await kubeapi.post('namespaces/' + req.user.namespace + '/services', s)
-		})
-	} catch (err) {
-		console.log("Error deploying: " + JSON.stringify(err))
+		} catch (err) {
+			console.log("Error deploying: " + JSON.stringify(err))
+		}
 	}
 
 
@@ -652,7 +673,7 @@ loadModules('./containers')
 watchModules('./containers')
 
 // generate debug token
-const myToken = generateToken("r.s.cushing@uva.nl", "cushing-001")
+const myToken = generateToken("admin", "test")
 console.log(myToken)
 
 // start HTTPS server
