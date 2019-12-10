@@ -8,3 +8,7 @@ run: build
 
 push: build
 	docker push recap/process-core-infra
+
+deploy: push
+	kubectl delete -f core-infra.yaml 
+	kubectl create -f core-infra.yaml

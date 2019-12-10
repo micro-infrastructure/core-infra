@@ -419,14 +419,23 @@ function copySshId(adaptor) {
 		conn.on('ready', () => {
 			console.log("[SSH] connected to: " + adaptor.host);
 			conn.sftp((err, sftp) => {
-				if (err) reject(err)
+				if (err) {
+					reject(err)
+					return
+				}
 				sftp.appendFile('.ssh/authorized_keys', adaptor.keys.public + '\n', (err) => {
-					if (err) reject(err)
+					if (err) { 
+						reject(err)
+						return
+					}
 					console.log("[SSH] added public key to: " + adaptor.host)
 					done(resolve)
 				})
 				sftp.writeFile('.ssh/process_id_rsa', adaptor.keys.private + '\n', {mode: '0600'}, (err) => {
-					if (err) reject(err)
+					if (err) {
+						reject(err)
+						return
+					}
 					console.log("[SSH] added private key to: " + adaptor.host)
 					done(resolve)
 				})
