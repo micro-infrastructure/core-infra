@@ -15,7 +15,10 @@ const ssh = require('ssh2').Client
 const keypair = require('keypair')
 const forge = require('node-forge')
 const path_module = require('path');
+const rp = require('request-promise');
+const promiseRetry = require('promise-retry');
 const moduleHolder = {};
+const config = require('./config');
 
 const cmdOptions = [
 	{ name: 'mongo', alias: 'm', type: String},
@@ -76,6 +79,8 @@ kubeapi.get('namespaces/process-core/pods', (err, data) => {
 		console.log("namespace: process-core, pod: " + d.metadata.name);
 	})
 })
+
+const cloudifyDeployments = {}
 
 function loadModules(path) {
     fs.lstat(path, function(err, stat) {
@@ -689,6 +694,65 @@ function generateKeys(user) {
 		})
 	})
 }
+
+function createCloudifyDeployment(deployName, body) {
+	if(cloudifyDeployments[deployName]) {
+		console.log("[warning] cloudify deployment " + deployName + " already exists.")
+		return
+	}
+	const options = {
+		method: "PUT",
+		uri: config.cloudify.uri + 'deployments/' + deployName,
+		rejectUnauthorized: false,
+		headers: {
+			"Tenant": "default_tenant",
+			"Content-Type": "application/json"
+		},
+		body: body,
+		json: true
+	}
+	return rp(options)
+}
+
+function test() {
+	o = {
+		blueprint_id: "k8s-blueprint",
+		inputs: {
+			master:"145.100.130.145:6443",
+			token: "uncg06.yy4i56d43z6mtycq",
+			discovery_ca: "sha256:5687aa7614e36ac4a088878349865a63cf0382148418cbcfc0d1f37cd6c4035b"
+		}
+	}
+
+	createCloudifyDeployment("k8s-test-1", o)
+}
+
+function checkCloudify() {
+	const options = {
+		method: "GET",
+		uri: config.cloudify.uri + 'deployments',
+		rejectUnauthorized: false,
+		headers: {
+			"Tenant": "default_tenant",
+			"Content-Type": "application/json"
+		},
+		json: true
+	}
+	return rp(options)
+}
+
+promiseRetry((retry, number) => {
+	console.log('retrying to contact cloudify at: ', config.cloudify.uri)
+	return checkCloudify().catch(retry)
+}).then(res => {
+	console.log('connected to cloudify: ', config.cloudify.uri)
+	// console.log('current deployments: ', res)
+	res.items.forEach(d => {
+		cloudifyDeployments[d.id] = d
+		console.log('found cloudify deployment: ', d.id)
+	})
+	test()
+})
 
 // load container handlers
 loadModules('./containers')

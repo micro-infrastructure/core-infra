@@ -23,6 +23,7 @@ pids
 *.pid.lock
 
 # secrets
+config.json
 *secret*
 *.key
 *.pem
