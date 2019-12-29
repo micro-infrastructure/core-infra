@@ -73,10 +73,39 @@ const kubeext = k8s.api({
 	version: '/apis/apps/v1'
 })
 
+const nodes = {}
+
 kubeapi.get('namespaces/process-core/pods', (err, data) => {
 	if (err) throw err
 	data.items.forEach(d => {
 		console.log("namespace: process-core, pod: " + d.metadata.name);
+	})
+})
+
+kubeapi.get('nodes', (err, data) => {
+	if (err) throw err
+	data.items.forEach(d => {
+		nodeName = d.metadata.name
+		if(!nodes[d.metadata.name])
+			nodes[d.metadata.name] = {}
+		d.status.conditions.forEach(c => {
+			if(c.type === 'Ready') {
+				nodes[d.metadata.name]['status'] = c.status
+				if(c.status === 'Unknown') {
+					// remove node from k8s
+					console.log("removing node: " + nodeName)
+					kubeapi.delete('nodes/' + nodeName, (err, res) => {
+						if(err) {
+							console.log('err: ', err)
+							return
+						}
+						delete nodes[nodeName]
+					})
+				} else {
+					console.log("found k8s node: " + nodeName + ", status " + c.status);
+				}
+			}
+		})
 	})
 })
 
@@ -500,7 +529,50 @@ const getNextPort = function() {
 	}
 }()
 
-app.post(api + '/infrastructure', [checkToken], async(req, res) => {
+function checkAvailableResources(infra) {
+	console.log("H!")
+	return new Promise(async (resolve, reject) => {
+		if(!infra.dedicatedNode) {
+			resolve()
+			return
+		}
+		const n = await kubeext.get('nodes')
+		const name = infra.name
+		o = {
+			blueprint_id: config.cloudify.blueprintId,
+			inputs: {
+				master: config.k8s.master,
+				token: config.k8s.token,
+				discovery_ca: config.k8s.discoveryCa
+			}
+		}
+
+		function install() {
+			installCloudifyDeployment(name).then(res => {
+				console.log(res)
+			}).catch(e => {
+				console.log(e)
+			})
+		}
+
+		createCloudifyDeployment(name, o).then(res => {
+			console.log("installing node ", name)
+			install()
+		}).catch(err => {
+			if (err instanceof AlreadyExistsError) {
+				console.log("installing node ", name)
+				install()
+			} else {
+				console.log(err)
+			}
+		})
+	})
+}
+
+
+//app.post(api + '/infrastructure', [checkToken], async(req, res) => {
+app.post(api + '/infrastructure', async(req, res) => {
+	console.log("SDFS")
 	const infra = req.body
 	let cntPort = 3001
 	const response = {}
@@ -508,146 +580,151 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 	const claims = []
 	const adaptorDescriptions = []
 	const volumes = createVolume()
-	// convert description to k8s container list
-	const sshPromises = infra.storageAdaptorContainers.filter(adaptor => {
-		return adaptor.type == "sshfs"
-	}).map(async(adaptor, index) => {
-		adaptor.keys = req.user.keys.ssh
-		// create ssh keys
-		if(!(await checkSshConnection(adaptor))) {
-			try {
-				await copySshId(adaptor)
-			}catch(err) {
-				const e = {
-					host: adaptor.host,
-					name: adaptor.name,
-					error: err
+
+	checkAvailableResources(infra).then(async result => {
+		// convert description to k8s container list
+		const sshPromises = infra.storageAdaptorContainers.filter(adaptor => {
+			return adaptor.type == "sshfs"
+		}).map(async(adaptor, index) => {
+			adaptor.keys = req.user.keys.ssh
+			// create ssh keys
+			if(!(await checkSshConnection(adaptor))) {
+				try {
+					await copySshId(adaptor)
+				}catch(err) {
+					const e = {
+						host: adaptor.host,
+						name: adaptor.name,
+						error: err
+					}
+					res.status(500).send(e)
+					return
 				}
-				res.status(500).send(e)
+			} else {
+				console.log("[SSH] key already present: " + adaptor.host)
+			}
+
+			// create container descriptions
+			cntPort += 1
+			const u = moduleHolder['sshfs']({
+				name: adaptor.name,
+				namespace: req.user.namespace,
+				containerPort: cntPort,
+				sshHost: adaptor.host,
+				sshPort: adaptor.port || '22',
+				sshUser: adaptor.user,
+				sshPath: adaptor.path
+			})
+			const desc = {
+				name: adaptor.host,
+				host: 'localhost',
+				port: cntPort,
+				type: 'webdav',
+				mount: adaptor.path
+			}
+			adaptorDescriptions.push(desc)
+			return u
+		})
+
+		const sshContainers = await Promise.all(sshPromises)
+
+
+		const ports = {}
+		async function processContainers(c, index) {
+			if(!moduleHolder[c.type]) {
+				console.log("[ERROR] " + c.type + " not found.")
 				return
 			}
-		} else {
-			console.log("[SSH] key already present: " + adaptor.host)
-		}
-
-		// create container descriptions
-		cntPort += 1
-		const u = moduleHolder['sshfs']({
-			name: adaptor.name,
-			namespace: req.user.namespace,
-			containerPort: cntPort,
-			sshHost: adaptor.host,
-			sshPort: adaptor.port || '22',
-			sshUser: adaptor.user,
-			sshPath: adaptor.path
-		})
-		const desc = {
-			name: adaptor.host,
-			host: 'localhost',
-			port: cntPort,
-			type: 'webdav',
-			mount: adaptor.path
-		}
-		adaptorDescriptions.push(desc)
-		return u
-	})
-
-	const sshContainers = await Promise.all(sshPromises)
-
-
-	const ports = {}
-	async function processContainers(c, index) {
-		if(!moduleHolder[c.type]) {
-			console.log("[ERROR] " + c.type + " not found.")
-			return
-		}
-		c.adaptors = sshContainers
-		c.descriptions = adaptorDescriptions
-		c.user = req.user
-		c.env = c.env || {}
-		c.containerPort = c.port ||  getNextPort()
-		ports[c.name] = c.containerPort
-		const u = moduleHolder[c.type](c)
-		if(c.service) {
-			const s = createService({
-				name: infra.name + '-' + c.type,
-				iname: infra.name,
-				namespace: req.user.namespace,
-				targetPort: c.service.targetPort || c.containerPort,
-				type: c.type
-			})
-			ports[c.name] = c.service.targetPort || c.containerPort
-			services.push(s)
-		}
-		return u
-	}
-
-	// create logic containers
-	const lgPromises = infra.logicContainers.map(processContainers)
-	const lgContainers = await Promise.all(lgPromises)
-	lgContainers.forEach(c => {
-			Object.keys(ports).forEach(k => {
-				const v = ports[k]
-				c.env.push({
-					name: k.toUpperCase() + "_HOST",
-					value: "127.0.0.1:" + v
+			c.adaptors = sshContainers
+			c.descriptions = adaptorDescriptions
+			c.user = req.user
+			c.env = c.env || {}
+			c.containerPort = c.port ||  getNextPort()
+			ports[c.name] = c.containerPort
+			const u = moduleHolder[c.type](c)
+			if(c.service) {
+				const s = createService({
+					name: infra.name + '-' + c.type,
+					iname: infra.name,
+					namespace: req.user.namespace,
+					targetPort: c.service.targetPort || c.containerPort,
+					type: c.type
 				})
-			})
-	})
-	
-	// create init containers
-	const initPromises = infra.initContainers.map(processContainers)
-	const initContainers = await Promise.all(initPromises)
+				ports[c.name] = c.service.targetPort || c.containerPort
+				services.push(s)
+			}
+			return u
+		}
 
-	const containers = sshContainers.concat(lgContainers)
-
-
-	let yml = ""
-	services.forEach(s => {
-		yml += YAML.stringify(s)
-		yml += "---\n"
-	})
-	
-	if (!options.noDeploy) {
-		try{
-
-			// create k8s services
-			// wait for all async calls to return
-			await Promise.all(services.map(async s => {
-					kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + s.metadata.name, (err, res) => {
-						if (err) console.log(err)
+		// create logic containers
+		const lgPromises = infra.logicContainers.map(processContainers)
+		const lgContainers = await Promise.all(lgPromises)
+		lgContainers.forEach(c => {
+				Object.keys(ports).forEach(k => {
+					const v = ports[k]
+					c.env.push({
+						name: k.toUpperCase() + "_HOST",
+						value: "127.0.0.1:" + v
 					})
-					const r = await kubeapi.post('namespaces/' + req.user.namespace + '/services', s)
-					const serviceName = r.metadata.labels.type.toUpperCase() + "_SERVICE"
-					const host = 'lobcder.process-project.eu:' + r.spec.ports[0].nodePort
-					containers.forEach(c => {
-						c.env.push({
-							name: serviceName,
-							value: host
+				})
+		})
+		
+		// create init containers
+		const initPromises = infra.initContainers.map(processContainers)
+		const initContainers = await Promise.all(initPromises)
+
+		const containers = sshContainers.concat(lgContainers)
+
+
+		let yml = ""
+		services.forEach(s => {
+			yml += YAML.stringify(s)
+			yml += "---\n"
+		})
+		
+		if (!options.noDeploy) {
+			try{
+
+				// create k8s services
+				// wait for all async calls to return
+				await Promise.all(services.map(async s => {
+						kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + s.metadata.name, (err, res) => {
+							if (err) console.log(err)
+						})
+						const r = await kubeapi.post('namespaces/' + req.user.namespace + '/services', s)
+						const serviceName = r.metadata.labels.type.toUpperCase() + "_SERVICE"
+						const host = 'lobcder.process-project.eu:' + r.spec.ports[0].nodePort
+						containers.forEach(c => {
+							c.env.push({
+								name: serviceName,
+								value: host
+							})
 						})
 					})
-				})
-			)
-			// generate k8s YAML deployment
-			const deployment = createDeployment({
-				name: infra.name,
-				namespace: req.user.namespace,
-				location: infra.location
-			}, volumes, containers, initContainers)
+				)
+				// generate k8s YAML deployment
+				const deployment = createDeployment({
+					name: infra.name,
+					namespace: req.user.namespace,
+					location: infra.location
+				}, volumes, containers, initContainers)
 
-			yml += YAML.stringify(deployment)
-			console.log(yml)
-			
-			// create k8s deployment
-			await kubeext.delete('namespaces/' + req.user.namespace + '/deployments', deployment)
-			await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
-		} catch (err) {
-			console.log("Error deploying: " + JSON.stringify(err))
+				yml += YAML.stringify(deployment)
+				console.log(yml)
+				
+				// create k8s deployment
+				await kubeext.delete('namespaces/' + req.user.namespace + '/deployments', deployment)
+				await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
+			} catch (err) {
+				console.log("Error deploying: " + JSON.stringify(err))
+			}
 		}
-	}
 
+		res.status(200).send(YAML.parseAllDocuments(yml))
 
-	res.status(200).send(YAML.parseAllDocuments(yml))
+	}).catch(err => {
+		console.log(err)
+	})
 })
 
 function deploy(desc) {
@@ -695,10 +772,34 @@ function generateKeys(user) {
 	})
 }
 
+class AlreadyExistsError extends Error {
+}
+
+function installCloudifyDeployment(deployName) {
+	if(!cloudifyDeployments[deployName]) {
+		return Promise.reject(new Error("cloudify deployment not found " + deployName + " already exists."))
+	}
+
+	const options = {
+		method: "POST",
+		uri: config.cloudify.uri + 'executions?_include=id',
+		rejectUnauthorized: false,
+		headers: {
+			"Tenant": "default_tenant",
+			"Content-Type": "application/json"
+		},
+		body: {
+			deployment_id: deployName,
+			workflow_id: "install"
+		},
+		json: true
+	}
+	return rp(options)
+}
+
 function createCloudifyDeployment(deployName, body) {
 	if(cloudifyDeployments[deployName]) {
-		console.log("[warning] cloudify deployment " + deployName + " already exists.")
-		return
+		return Promise.reject(new AlreadyExistsError("[warning] cloudify deployment " + deployName + " already exists."))
 	}
 	const options = {
 		method: "PUT",
@@ -714,17 +815,23 @@ function createCloudifyDeployment(deployName, body) {
 	return rp(options)
 }
 
-function test() {
-	o = {
-		blueprint_id: "k8s-blueprint",
-		inputs: {
-			master:"145.100.130.145:6443",
-			token: "uncg06.yy4i56d43z6mtycq",
-			discovery_ca: "sha256:5687aa7614e36ac4a088878349865a63cf0382148418cbcfc0d1f37cd6c4035b"
-		}
-	}
+function deleteCloudifyDeployment(deployName) {
 
-	createCloudifyDeployment("k8s-test-1", o)
+	const options = {
+		method: "POST",
+		uri: config.cloudify.uri + 'executions?_include=id',
+		rejectUnauthorized: false,
+		headers: {
+			"Tenant": "default_tenant",
+			"Content-Type": "application/json"
+		},
+		body: {
+			deployment_id: deployName,
+			workflow_id: "uninstall"
+		},
+		json: true
+	}
+	return rp(options)
 }
 
 function checkCloudify() {
@@ -750,8 +857,8 @@ promiseRetry((retry, number) => {
 	res.items.forEach(d => {
 		cloudifyDeployments[d.id] = d
 		console.log('found cloudify deployment: ', d.id)
+		//console.log(d)
 	})
-	test()
 })
 
 // load container handlers
