@@ -82,32 +82,71 @@ kubeapi.get('namespaces/process-core/pods', (err, data) => {
 	})
 })
 
-kubeapi.get('nodes', (err, data) => {
-	if (err) throw err
-	data.items.forEach(d => {
-		nodeName = d.metadata.name
-		if(!nodes[d.metadata.name])
-			nodes[d.metadata.name] = {}
-		d.status.conditions.forEach(c => {
-			if(c.type === 'Ready') {
-				nodes[d.metadata.name]['status'] = c.status
-				if(c.status === 'Unknown') {
-					// remove node from k8s
-					console.log("removing node: " + nodeName)
-					kubeapi.delete('nodes/' + nodeName, (err, res) => {
-						if(err) {
-							console.log('err: ', err)
-							return
+function waitForNodeUp(name) {
+	return new Promise((resolve, reject) => {
+		const interval = setInterval(() => {
+			kubeapi.get('nodes', (err, data) => {
+				if(err) return
+				const nodes = data.items.filter(d => {
+					nodeName = d.metadata.name
+					console.log(nodeName)
+					let up = false
+					d.status.conditions.forEach(c => {
+						if(c.type === 'Ready') {
+							up = true
 						}
-						delete nodes[nodeName]
 					})
-				} else {
-					console.log("found k8s node: " + nodeName + ", status " + c.status);
+					if(up) {
+						return nodeName
+					}
+				}).map(d => {
+					return d.metadata.name
+				}).filter(n => {
+					if(n.indexOf(name) > -1) return n
+				})
+				if(nodes) {
+					clearInterval(interval)
+					resolve(nodes)
 				}
-			}
-		})
+			})
+		}, 1000)
+
 	})
-})
+}
+
+function updateAndCleanNodes() {
+	return new Promise((resolve,reject) => {
+		kubeapi.get('nodes', (err, data) => {
+		if (err) reject(err)
+		data.items.forEach(d => {
+			nodeName = d.metadata.name
+			if(!nodes[d.metadata.name])
+				nodes[d.metadata.name] = {}
+			d.status.conditions.forEach(c => {
+				if(c.type === 'Ready') {
+					nodes[d.metadata.name]['status'] = c.status
+					if(c.status === 'Unknown') {
+						// remove node from k8s
+						console.log("removing node: " + nodeName)
+						kubeapi.delete('nodes/' + nodeName, (err, res) => {
+							if(err) {
+								console.log('err: ', err)
+								return
+							}
+							delete nodes[nodeName]
+						})
+					} else {
+						console.log("found k8s node: " + nodeName + ", status " + c.status);
+					}
+				}
+			})
+		})
+		resolve(nodes)
+	})
+	})
+}
+
+updateAndCleanNodes().then(n => {})
 
 const cloudifyDeployments = {}
 
@@ -530,14 +569,23 @@ const getNextPort = function() {
 }()
 
 function checkAvailableResources(infra) {
-	console.log("H!")
 	return new Promise(async (resolve, reject) => {
 		if(!infra.dedicatedNode) {
-			resolve()
+			resolve([])
 			return
 		}
-		const n = await kubeext.get('nodes')
+		
 		const name = infra.name
+		const nodes = await updateAndCleanNodes()
+		const filteredNodes = Object.keys(nodes).filter(n => {
+			if(n.indexOf(name) > -1) return n
+		})
+
+		if(filteredNodes) {
+			resolve(filteredNodes)
+			return
+		}
+
 		o = {
 			blueprint_id: config.cloudify.blueprintId,
 			inputs: {
@@ -572,7 +620,6 @@ function checkAvailableResources(infra) {
 
 //app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 app.post(api + '/infrastructure', async(req, res) => {
-	console.log("SDFS")
 	const infra = req.body
 	let cntPort = 3001
 	const response = {}
@@ -582,6 +629,13 @@ app.post(api + '/infrastructure', async(req, res) => {
 	const volumes = createVolume()
 
 	checkAvailableResources(infra).then(async result => {
+		// TODO remove
+		console.log("RESULT: ", result)
+		waitForNodeUp(infra.name).then(n => {
+			console.log("UP NODE: ", n)
+		})
+		res.status(200).send()
+		return
 		// convert description to k8s container list
 		const sshPromises = infra.storageAdaptorContainers.filter(adaptor => {
 			return adaptor.type == "sshfs"
