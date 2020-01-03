@@ -83,13 +83,13 @@ kubeapi.get('namespaces/process-core/pods', (err, data) => {
 })
 
 function waitForNodeUp(name) {
+	console.log("waiting for node " + name + " to come up.")
 	return new Promise((resolve, reject) => {
 		const interval = setInterval(() => {
 			kubeapi.get('nodes', (err, data) => {
 				if(err) return
 				const nodes = data.items.filter(d => {
 					nodeName = d.metadata.name
-					console.log(nodeName)
 					let up = false
 					d.status.conditions.forEach(c => {
 						if(c.type === 'Ready') {
@@ -104,12 +104,12 @@ function waitForNodeUp(name) {
 				}).filter(n => {
 					if(n.indexOf(name) > -1) return n
 				})
-				if(nodes) {
+				if(!isEmpty(nodes)) {
 					clearInterval(interval)
 					resolve(nodes)
 				}
 			})
-		}, 1000)
+		}, 10000)
 
 	})
 }
@@ -236,6 +236,10 @@ function createVolumeClaim(details) {
 			}
 		}
 	}
+}
+
+function isEmpty(a) {
+	return (!Array.isArray(array) || !array.length) 
 }
 
 function createVolume(details) {
@@ -550,6 +554,13 @@ app.get(api + '/infrastructure', checkToken, async(req, res) => {
 	res.status(200).send(info)
 })
 
+app.delete(api + '/node/:id', async(req, res) => {
+	const id = req.params.id
+	console.log("deleting node " + id)
+	deleteCloudifyDeployment(id)
+	res.status(200).send()
+})
+
 app.delete(api + '/infrastructure/:id', checkToken, async(req, res) => {
 	const id = req.params.id
 	kubeext.delete('namespaces/' + req.user.namespace + '/deployments/' + id, (err, res) => {
@@ -581,7 +592,7 @@ function checkAvailableResources(infra) {
 			if(n.indexOf(name) > -1) return n
 		})
 
-		if(filteredNodes) {
+		if(!isEmpty(filteredNodes)) {
 			resolve(filteredNodes)
 			return
 		}
@@ -596,23 +607,40 @@ function checkAvailableResources(infra) {
 		}
 
 		function install() {
-			installCloudifyDeployment(name).then(res => {
-				console.log(res)
-			}).catch(e => {
-				console.log(e)
+			getCloudifyDeployments().then(res => {
+				res.items.forEach(d => {
+					cloudifyDeployments[d.id] = d
+					console.log('found cloudify deployment: ', d.id)
+				})
+				installCloudifyDeployment(name).then(res => {
+					console.log(res)
+				}).catch(e => {
+					console.log(e)
+				})
 			})
 		}
 
 		createCloudifyDeployment(name, o).then(res => {
 			console.log("installing node ", name)
-			install()
+			setTimeout(() => {
+				install()
+			}, 10000)
 		}).catch(err => {
 			if (err instanceof AlreadyExistsError) {
 				console.log("installing node ", name)
-				install()
+				setTimeout(() => {
+					install()
+				}, 10000)
 			} else {
 				console.log(err)
 			}
+		})
+		
+		waitForNodeUp(infra.name).then(n => {
+			console.log("node up: ", n)
+			resolve(n)
+		}).catch(err => {
+			reject("node up error")
 		})
 	})
 }
@@ -631,9 +659,6 @@ app.post(api + '/infrastructure', async(req, res) => {
 	checkAvailableResources(infra).then(async result => {
 		// TODO remove
 		console.log("RESULT: ", result)
-		waitForNodeUp(infra.name).then(n => {
-			console.log("UP NODE: ", n)
-		})
 		res.status(200).send()
 		return
 		// convert description to k8s container list
@@ -830,8 +855,9 @@ class AlreadyExistsError extends Error {
 }
 
 function installCloudifyDeployment(deployName) {
+
 	if(!cloudifyDeployments[deployName]) {
-		return Promise.reject(new Error("cloudify deployment not found " + deployName + " already exists."))
+		return Promise.reject(new Error("cloudify deployment not found " + deployName))
 	}
 
 	const options = {
@@ -888,7 +914,7 @@ function deleteCloudifyDeployment(deployName) {
 	return rp(options)
 }
 
-function checkCloudify() {
+function getCloudifyDeployments() {
 	const options = {
 		method: "GET",
 		uri: config.cloudify.uri + 'deployments',
@@ -904,7 +930,7 @@ function checkCloudify() {
 
 promiseRetry((retry, number) => {
 	console.log('retrying to contact cloudify at: ', config.cloudify.uri)
-	return checkCloudify().catch(retry)
+	return getCloudifyDeployments().catch(retry)
 }).then(res => {
 	console.log('connected to cloudify: ', config.cloudify.uri)
 	// console.log('current deployments: ', res)
