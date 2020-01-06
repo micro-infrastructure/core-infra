@@ -115,20 +115,19 @@ function waitForNodeUp(name) {
 }
 
 async function removeNode(id) {
-	let isThere = false
 	const nodes = await updateAndCleanNodes(id)
-	console.log(nodes)
-	Object.keys(nodes).forEach(n => {
-		if(n.indexOf(id) > -1) {
-			isThere = true
-		}
-		if(isThere == true) {
-			setTimeout(()=> {
-				console.log("retry remove node")
-				removeNode(id)
-			}, 1000)
-		}
+	const filteredNodes = Object.keys(nodes).filter(n => {
+		if(n.indexOf(id) > -1) return n
 	})
+	if(filteredNodes.length > 1) {
+		console.log("[warning] not removing nodes due to multiple matches for " + id + " " + filteredNodes)
+		return
+	}
+	if(!isEmpty(filteredNodes)) {
+		setTimeout(() => {
+			removeNode(id)
+		}, 5000)
+	}
 }
 
 function updateAndCleanNodes(id) {
