@@ -114,7 +114,24 @@ function waitForNodeUp(name) {
 	})
 }
 
-function updateAndCleanNodes() {
+async function removeNode(id) {
+	let isThere = false
+	const nodes = await updateAndCleanNodes(id)
+	console.log(nodes)
+	Object.keys(nodes).forEach(n => {
+		if(n.indexOf(id) > -1) {
+			isThere = true
+		}
+		if(isThere == true) {
+			setTimeout(()=> {
+				console.log("retry remove node")
+				removeNode(id)
+			}, 1000)
+		}
+	})
+}
+
+function updateAndCleanNodes(id) {
 	return new Promise((resolve,reject) => {
 		kubeapi.get('nodes', (err, data) => {
 		if (err) reject(err)
@@ -126,14 +143,19 @@ function updateAndCleanNodes() {
 				if(c.type === 'Ready') {
 					nodes[d.metadata.name]['status'] = c.status
 					if(c.status === 'Unknown') {
+						if(id) {
+							if(!(nodeName.indexOf(id) > -1)) {
+									return
+							}
+						}
 						// remove node from k8s
 						console.log("removing node: " + nodeName)
+						delete nodes[nodeName]
 						kubeapi.delete('nodes/' + nodeName, (err, res) => {
 							if(err) {
 								console.log('err: ', err)
 								return
 							}
-							delete nodes[nodeName]
 						})
 					} else {
 						console.log("found k8s node: " + nodeName + ", status " + c.status);
@@ -558,6 +580,7 @@ app.delete(api + '/node/:id', async(req, res) => {
 	const id = req.params.id
 	console.log("deleting node " + id)
 	deleteCloudifyDeployment(id)
+	removeNode(id)
 	res.status(200).send()
 })
 
