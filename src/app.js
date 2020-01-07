@@ -18,7 +18,7 @@ const path_module = require('path');
 const rp = require('request-promise');
 const promiseRetry = require('promise-retry');
 const moduleHolder = {};
-const config = require('./config');
+const config = require('./core-infra-config');
 
 const cmdOptions = [
 	{ name: 'mongo', alias: 'm', type: String},
@@ -74,6 +74,7 @@ const kubeext = k8s.api({
 })
 
 const nodes = {}
+const infras = {}
 
 kubeapi.get('namespaces/process-core/pods', (err, data) => {
 	if (err) throw err
@@ -260,7 +261,7 @@ function createVolumeClaim(details) {
 }
 
 function isEmpty(a) {
-	return (!Array.isArray(array) || !array.length) 
+	return (!Array.isArray(a) || !a.length) 
 }
 
 function createVolume(details) {
@@ -280,6 +281,7 @@ function createVolume(details) {
 }
 
 function createDeployment(details, volumes, containers, initContainers) {
+	const nodeSelector = (!isEmpty(details.deployNodes)) ? { 'kubernetes.io/hostname': details.deployNodes[0] }  : null
 	return {
 		kind: "Deployment",
 		apiVersion: "apps/v1",
@@ -308,6 +310,7 @@ function createDeployment(details, volumes, containers, initContainers) {
 					},
 					hostname: details.name,
 					volumes: volumes,
+					nodeSelector: nodeSelector,
 					containers: containers,
 					initContainers: initContainers
 				  }
@@ -350,10 +353,6 @@ function generateToken(user, namespace) {
 		namespace: namespace || "default",
 		date: new Date().toISOString()
 	}, privateKey, {algorithm: 'RS256'})
-}
-
-function isEmpty(arr) {
-	return arr.length === 0 ? true : false
 }
 
 function checkToken(req, res, next) {
@@ -602,6 +601,7 @@ const getNextPort = function() {
 }()
 
 function checkAvailableResources(infra) {
+	updateInfraStatus(infra.name, "checking resources")
 	return new Promise(async (resolve, reject) => {
 		if(!infra.dedicatedNode) {
 			resolve([])
@@ -667,9 +667,13 @@ function checkAvailableResources(infra) {
 	})
 }
 
+function updateInfraStatus(name, status, details) {
+	infras[name][status] = status
+	infras[name][details] = details
+}
 
-//app.post(api + '/infrastructure', [checkToken], async(req, res) => {
-app.post(api + '/infrastructure', async(req, res) => {
+app.post(api + '/infrastructure', [checkToken], async(req, res) => {
+//app.post(api + '/infrastructure', async(req, res) => {
 	const infra = req.body
 	let cntPort = 3001
 	const response = {}
@@ -678,11 +682,14 @@ app.post(api + '/infrastructure', async(req, res) => {
 	const adaptorDescriptions = []
 	const volumes = createVolume()
 
-	checkAvailableResources(infra).then(async result => {
-		// TODO remove
-		console.log("RESULT: ", result)
-		res.status(200).send()
-		return
+	infras[infra.name] = {
+		id: infra.name,
+		status: "queued"
+	}
+	
+	res.status(200).send(infras[infra.name])
+
+	checkAvailableResources(infra).then(async deployNodes => {
 		// convert description to k8s container list
 		const sshPromises = infra.storageAdaptorContainers.filter(adaptor => {
 			return adaptor.type == "sshfs"
@@ -757,6 +764,8 @@ app.post(api + '/infrastructure', async(req, res) => {
 			return u
 		}
 
+		updateInfraStatus(infra.name, "generating k8s yaml")
+
 		// create logic containers
 		const lgPromises = infra.logicContainers.map(processContainers)
 		const lgContainers = await Promise.all(lgPromises)
@@ -784,7 +793,7 @@ app.post(api + '/infrastructure', async(req, res) => {
 		})
 		
 		if (!options.noDeploy) {
-			try{
+			//try{
 
 				// create k8s services
 				// wait for all async calls to return
@@ -807,21 +816,24 @@ app.post(api + '/infrastructure', async(req, res) => {
 				const deployment = createDeployment({
 					name: infra.name,
 					namespace: req.user.namespace,
-					location: infra.location
+					location: infra.location,
+					deployNodes: deployNodes
 				}, volumes, containers, initContainers)
 
 				yml += YAML.stringify(deployment)
-				console.log(yml)
+				console.log("deployment: ", yml)
 				
 				// create k8s deployment
+				updateInfraStatus(infra.name, "deploying pod", deployment)
+
 				await kubeext.delete('namespaces/' + req.user.namespace + '/deployments', deployment)
 				await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
-			} catch (err) {
-				console.log("Error deploying: " + JSON.stringify(err))
-			}
+			//} catch (err) {
+			//	console.log("Error deploying: " + JSON.stringify(err))
+			//}
 		}
 
-		res.status(200).send(YAML.parseAllDocuments(yml))
+		//res.status(200).send(YAML.parseAllDocuments(yml))
 
 	}).catch(err => {
 		console.log(err)
