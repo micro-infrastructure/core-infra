@@ -10,41 +10,39 @@ function handler(details) {
 			'publicKey': encodeBase64(details.user.keys.raw.public)
 		}
 	}
-	const image = details.image || "recap/adaptor-srm2local"	
+	const image = details.image || "microinfrastructure/adaptor-srm2local"
 	const users = encodeBase64(JSON.stringify(user))
-	let cmd = "sleep 15 && python src/app.py"
-	const appConfig = encodeBase64(JSON.stringify(details.descriptions))
-	const o = {
-				"name": details.name,
-				"image": image,
-				"imagePullPolicy": "Always",
-				"ports": [
-					{
-						"containerPort": details.containerPort
-					}
-				],
-				"env": [
-					{ "name": "AMQP_HOST", "value": "127.0.0.1"},
-					{ "name": "JWTUSERS", "value": users }
-				],
-				"volumeMounts": [
-					{ "name": "shared-data", "mountPath": "/shared-data" }
-				],
-				"command": ["/bin/sh", "-c" ],
-				"args": [cmd]
-			}
-	// pass env variables
-	if (details.env) {
-		Object.keys(details.env).forEach(k => {
-			o.env[k] = details.env[k]
-		})
-	}
-	return o
 
+	const o = {
+		"name": details.name,
+		"image": image,
+		"imagePullPolicy": "Always",
+		"ports": [
+			{
+				"containerPort": details.containerPort
+			}
+		],
+		"env": [
+			{ "name": "AMQP_HOST", "value": "127.0.0.1" },
+			{ "name": "JWTUSERS", "value": users }
+		],
+		"volumeMounts": [
+			{ "name": "shared-data", "mountPath": "/shared-data" }
+		],
+		"command": ["/bin/sh", "-c"],
+		"args": ["sleep 15 && python src/app.py"]
+	}
+
+	if (details.env) {
+		for (let [name, value] of Object.entries(details.env)) {
+			o.env.push({ name, value });
+		}
+	}
+
+	return o
 }
 
-module.exports = function(moduleHolder) {
+module.exports = function (moduleHolder) {
 	moduleHolder[name] = handler
 	console.log("Loaded container module: " + name)
 }
-

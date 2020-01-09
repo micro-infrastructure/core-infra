@@ -1,4 +1,4 @@
-const name = 'rabbitmq'
+const name = 'lofar-stage'
 
 function encodeBase64(s) {
 	return new Buffer(s).toString('base64')
@@ -10,7 +10,7 @@ function handler(details) {
 			'publicKey': encodeBase64(details.user.keys.raw.public)
 		}
 	}
-	const image = details.image || "rabbitmq:3"
+	const image = details.image || "microinfrastructure/adaptor-lofar-stage"
 	const users = encodeBase64(JSON.stringify(user))
 
 	const o = {
@@ -18,7 +18,7 @@ function handler(details) {
 		"image": image,
 		"imagePullPolicy": "Always",
 		"ports": [
-			{ "containerPort": details.containerPort || 5672 }
+			{ "containerPort": details.containerPort }
 		],
 		"env": [
 			{ "name": "AMQP_HOST", "value": "127.0.0.1" },
@@ -27,7 +27,8 @@ function handler(details) {
 		"volumeMounts": [
 			{ "name": "shared-data", "mountPath": "/shared-data" }
 		],
-		"command": ["rabbitmq-server"],
+		"command": ["/bin/sh", "-c"],
+		"args": ["sleep 15 && python src/app.py"]
 	}
 
 	if (details.env) {
@@ -43,4 +44,3 @@ module.exports = function (moduleHolder) {
 	moduleHolder[name] = handler
 	console.log("Loaded container module: " + name)
 }
-
