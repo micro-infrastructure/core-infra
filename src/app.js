@@ -321,7 +321,10 @@ function createDeployment(details, volumes, containers, initContainers) {
 
 function createService(details) {
 	//const name = (details.type == "webdav") ? details.name + '-ht' : details.name + '-jwt'
-	return {
+	const ns = details.namespace
+	const uc = config.namespacePorts[ns]
+	
+	const svc = {
 		kind: "Service",
 		apiVersion: "v1",
 		metadata: {
@@ -345,6 +348,12 @@ function createService(details) {
 			type: "NodePort"
 		}
 	}
+
+	if(uc) {
+		svc.spec.ports[0]['nodePort'] = uc[details.type]
+	}
+
+	return svc
 }
 
 function generateToken(user, namespace) {
@@ -705,7 +714,8 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 						name: adaptor.name,
 						error: err
 					}
-					res.status(500).send(e)
+					console.log(err)
+					//res.status(500).send(e)
 					return
 				}
 			} else {
@@ -777,6 +787,10 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 						value: "127.0.0.1:" + v
 					})
 				})
+				c.env.push({
+					name: "INFRA",
+					value: encodeBase64(JSON.stringify(infra))
+				})
 		})
 		
 		// create init containers
@@ -798,16 +812,17 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				// create k8s services
 				// wait for all async calls to return
 				await Promise.all(services.map(async s => {
-						kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + s.metadata.name, (err, res) => {
+						kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + s.metadata.name, async (err, res) => {
 							if (err) console.log(err)
-						})
-						const r = await kubeapi.post('namespaces/' + req.user.namespace + '/services', s)
-						const serviceName = r.metadata.labels.type.toUpperCase() + "_SERVICE"
-						const host = 'lobcder.process-project.eu:' + r.spec.ports[0].nodePort
-						containers.forEach(c => {
-							c.env.push({
-								name: serviceName,
-								value: host
+							
+							const r = await kubeapi.post('namespaces/' + req.user.namespace + '/services', s)
+							const serviceName = r.metadata.labels.type.toUpperCase() + "_SERVICE"
+							const host = 'lobcder.process-project.eu:' + r.spec.ports[0].nodePort
+							containers.forEach(c => {
+								c.env.push({
+									name: serviceName,
+									value: host
+								})
 							})
 						})
 					})

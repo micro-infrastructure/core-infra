@@ -10,6 +10,7 @@ function handler(details) {
 	}
 	const users = encodeBase64(JSON.stringify(user))
 	let cmd = "sleep 15 && echo $JWTUSERS | base64 -d > /assets/jwtusers.json"
+	cmd += " && echo $INFRA | base64 -d > /assets/infra.json"
 	cmd += " &&  /bin/cat /ssh/id_rsa > /root/.ssh/id_rsa && /bin/cat /ssh/id_rsa.pub > /root/.ssh/id_rsa.pub  && /bin/chmod 600 /root/.ssh/id_rsa && cd /root/app && node app.js --sshPrivateKey /root/.ssh/id_rsa -u /assets/jwtusers.json -p " + details.containerPort + " "
 
 	return {
