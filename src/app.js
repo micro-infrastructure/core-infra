@@ -18,7 +18,6 @@ const path_module = require('path');
 const rp = require('request-promise');
 const promiseRetry = require('promise-retry');
 const moduleHolder = {};
-const config = require('./core-infra-config');
 
 const cmdOptions = [
 	{ name: 'mongo', alias: 'm', type: String},
@@ -28,10 +27,12 @@ const cmdOptions = [
 	{ name: 'port', alias: 'p', type: Number},
 	{ name: 'dbpass', type: String},
 	{ name: 'noDeploy', type: Boolean},
-	{ name: 'host', alias: 'h', type: String}
+	{ name: 'host', alias: 'h', type: String},
+    { name: 'config', type: String}
 ]
 
 const options = cmdArgs(cmdOptions)
+const config = (options.config) ? require(options.config) : require('./core-infra-config');
 
 // load keys
 const privateKey = fs.readFileSync(options.privateKey, "utf-8")
