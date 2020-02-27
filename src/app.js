@@ -266,19 +266,21 @@ function isEmpty(a) {
 }
 
 function createVolume(details) {
-	// return default pod volumes
-	return  [
-      {
-        "name": "ssh-key",
-        "secret": {
-          "secretName": "keys"
-        }
-      },
-      {
-        "name": "shared-data",
-        "emptyDir": {}
-      }
-    ]
+	if(!details) {
+		// return default pod volumes
+		return  [
+		  {
+			"name": "ssh-key",
+			"secret": {
+			  "secretName": "keys"
+			}
+		  },
+		  {
+			"name": "shared-data",
+			"emptyDir": {}
+		  }
+		]
+	}
 }
 
 function createDeployment(details, volumes, containers, initContainers) {
@@ -682,9 +684,40 @@ function updateInfraStatus(name, status, details) {
 	infras[name][details] = details
 }
 
+function stripInfoFromInfra(i) {
+	const c = JSON.parse(JSON.stringify(i))
+	const allowFields = ['name', 'type', 'host', 'path']
+	c.storageAdaptorContainers.forEach(s => {
+		const fieldsToRemove = []
+		Object.keys(s).forEach(k => {
+			if(!allowFields.includes(k)) {
+				fieldsToRemove.push(k)
+			}
+		})
+		fieldsToRemove.forEach(f => {
+			delete s[f]
+		})
+	})
+	
+	c.logicContainers.forEach(s => {
+		const fieldsToRemove = []
+		Object.keys(s).forEach(k => {
+			if(!allowFields.includes(k)) {
+				fieldsToRemove.push(k)
+			}
+		})
+		fieldsToRemove.forEach(f => {
+			delete s[f]
+		})
+	})
+
+	return c
+}
+
 app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 //app.post(api + '/infrastructure', async(req, res) => {
 	const infra = req.body
+
 	let cntPort = 3001
 	const response = {}
 	const services = []
@@ -698,8 +731,15 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 	}
 	
 	res.status(200).send(infras[infra.name])
+	
+	infra.storageAdaptorContainers = infra.storageAdaptorContainers || []
+	infra.initContainers = infra.initContainers || []
+	const clonedInfra = stripInfoFromInfra(infra)
 
 	checkAvailableResources(infra).then(async deployNodes => {
+		if(infra.deployNode) {
+			deployNodes.push(infra.deployNode)
+		}
 		// convert description to k8s container list
 		const sshPromises = infra.storageAdaptorContainers.filter(adaptor => {
 			return adaptor.type == "sshfs"
@@ -747,7 +787,6 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 
 		const sshContainers = await Promise.all(sshPromises)
 
-
 		const ports = {}
 		async function processContainers(c, index) {
 			if(!moduleHolder[c.type]) {
@@ -772,6 +811,33 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				ports[c.name] = c.service.targetPort || c.containerPort
 				services.push(s)
 			}
+			if(c.mountHost && infra.deployNode) {
+				const userNamespace = c.user.namespace
+				const userFolders = config.folders[userNamespace]
+				
+				// create mount
+				c.mountHost.forEach((mnt, i) => {
+					const isAuthorized = userFolders.some(f => {
+						return (f.host == infra.deployNode && mnt.hostPath == f.folder && f.type == "k8s_node")	
+					})
+					// check authorization
+					if(!isAuthorized) {
+						console.log(userNamespace + " not authorized to mount " + mnt.hostPath + " on " + infra.deployNode)
+						return;
+					}
+					const vol = {
+						name: "volume-" + i,
+						hostPath: {
+							path: mnt.hostPath
+						}
+					}
+					volumes.push(vol);
+					u.volumeMounts.push({
+						name: "volume-" + i,
+						mountPath: mnt.mountPath
+					})
+				});
+			}
 			return u
 		}
 
@@ -790,7 +856,7 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				})
 				c.env.push({
 					name: "INFRA",
-					value: encodeBase64(JSON.stringify(infra))
+					value: encodeBase64(JSON.stringify(clonedInfra))
 				})
 		})
 		
