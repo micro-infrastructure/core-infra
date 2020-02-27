@@ -564,6 +564,29 @@ async function getNamespaceServices(ns) {
 	return res
 }
 
+async function getNamespacePods(ns) {
+	const res = await kubeapi.get('namespaces/' + ns + '/pods')
+	res.items.forEach(d => {
+		console.log("namespace: " + ns + ", pod: " + d.metadata.name);
+	})
+	return res
+}
+
+function filterPods(pods) {
+	return pods.map(p => {
+		const r = {}
+		r.name = p.metadata.name
+		r.containers = p.status.containerStatuses.map(c => {
+			return {
+				name: c.name,
+				state: Object.keys(c.state)[0],
+				image: c.image
+			}
+		})
+		return r
+	})
+}
+
 function filterServices(services) {
 	return services.map(s => {
 		return {
@@ -577,12 +600,16 @@ function filterServices(services) {
 
 app.get(api + '/infrastructure', checkToken, async(req, res) => {
 	const services = await getNamespaceServices(req.user.namespace)
-	const info = filterServices(services.items)
-	info.push({
+	const pods = await getNamespacePods(req.user.namespace)
+	//console.log(JSON.stringify(pods, null, 2))
+	info = {}
+	info.services = filterServices(services.items)
+	info.pods = filterPods(pods.items)
+	info.token = {
 		type: 'token',
 		header: 'x-access-token',
 		value: req.user.keys.token
-	})
+	}
 	res.status(200).send(info)
 })
 
