@@ -18,6 +18,7 @@ const path_module = require('path');
 const rp = require('request-promise');
 const promiseRetry = require('promise-retry');
 const moduleHolder = {};
+mongoose.set('useFindAndModify', false);
 
 const cmdOptions = [
 	{ name: 'mongo', alias: 'm', type: String},
@@ -323,15 +324,15 @@ function createDeployment(details, volumes, containers, initContainers) {
 }
 
 function createService(details) {
-	//const name = (details.type == "webdav") ? details.name + '-ht' : details.name + '-jwt'
 	const ns = details.namespace
-	const uc = config.namespacePorts[ns]
-	
+	const uc = details.staticPorts
+	const serviceName = details.iname + "-" + details.name
+
 	const svc = {
 		kind: "Service",
 		apiVersion: "v1",
 		metadata: {
-			name: details.name,
+			name: serviceName,
 			namespace: details.namespace,
 			labels: {
 				app: details.iname,
@@ -353,7 +354,7 @@ function createService(details) {
 	}
 
 	if(uc) {
-		svc.spec.ports[0]['nodePort'] = uc[details.type]
+		svc.spec.ports[0]['nodePort'] = uc[details.name]
 	}
 
 	return svc
@@ -405,7 +406,7 @@ function checkAdminToken(req, res, next) {
 			res.status(403).send()
 			return
 		}
-		console.log(decoded)
+		//console.log(decoded)
 		if (!(decoded.user == 'admin')) {
 			res.status(403).send()
 			return
@@ -461,9 +462,23 @@ app.put(api + '/user', checkAdminToken, async(req, res) => {
 				new User({
 					email: user.email,
 					namespace: user.namespace,
-					keys: keys
+					keys: keys,
+					folders: user.folders,
+					staticPorts: user.staticPorts,
+					credentials: user.credentials
 				}).save()
 			} else {
+				User.findOneAndUpdate({email: user.email}, { 
+					folders: user.folders,
+					staticPorts: user.staticPorts,
+					credentials: user.credentials
+				}, (err, doc) => {
+					if(err) {
+						console.log(err)
+						return
+					}
+					console.log("updated user: " + user.email)
+				})
 				keys = results[0].keys
 			}
 
@@ -829,18 +844,19 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 			const u = moduleHolder[c.type](c)
 			if(c.service) {
 				const s = createService({
-					name: infra.name + '-' + c.type,
+					name: c.name,
 					iname: infra.name,
 					namespace: req.user.namespace,
 					targetPort: c.service.targetPort || c.containerPort,
-					type: c.type
+					type: c.type,
+					staticPorts: req.user.staticPorts || {}
 				})
 				ports[c.name] = c.service.targetPort || c.containerPort
 				services.push(s)
 			}
 			if(c.mountHost && infra.deployNode) {
-				const userNamespace = c.user.namespace
-				const userFolders = config.folders[userNamespace]
+				const userNamespace = req.user.namespace
+				const userFolders = req.user.folders || []
 				
 				// create mount
 				c.mountHost.forEach((mnt, i) => {
@@ -957,13 +973,18 @@ function deploy(desc) {
 const userSchema = mongoose.Schema({
 	email: String,
 	namespace: String,
-	keys: Object
+	keys: Object,
+	folders: Object,
+	staticPorts: Object,
+	credentials: Object
 })
 
 const User = mongoose.model('Users', userSchema)
 
 async function checkMongo() {
-	const url = "mongodb://core-infra:core-infra@" + options.mongo + ":27017/process"
+	const user = config.mongodb.user
+	const pwd = config.mongodb.pwd
+	const url = "mongodb://" + user + ":" + pwd + "@" + options.mongo + ":27017/process"
 	console.log(url)
 	mongoose.connect(url)
 	const db = mongoose.connection
