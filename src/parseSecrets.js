@@ -34,9 +34,9 @@ if (options.list) {
 	})
 	return
 }
-//const dataToAdd = encodeBase64(fs.readFileSync(options.addFile, "utf-8"))
-//const fieldName = path.basename(options.addFile)
+const dataToAdd = encodeBase64(fs.readFileSync(options.addFile, "utf-8"))
+const fieldName = path.basename(options.addFile)
 
-//jsonSecrets.data[fieldName] = dataToAdd
+jsonSecrets.data[fieldName] = dataToAdd
 
-//console.log(YAML.stringify(jsonSecrets))
+console.log(YAML.stringify(jsonSecrets))

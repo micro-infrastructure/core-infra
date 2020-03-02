@@ -756,6 +756,32 @@ function stripInfoFromInfra(i) {
 	return c
 }
 
+function updateUserFolders(user, folder) {
+	User.findById(user._id, (err, doc) => {
+		if(err) {
+			console.lof(err)
+			return
+		}
+		let newFolders = []
+		if(doc.folders) {
+			newFolders = doc.folders.map((f,i) => {
+				if(f.name == folder.name) {
+					return folder
+				} else return f
+			})
+		} else {
+			newFolders.push(folder)
+		}
+		User.findByIdAndUpdate(user._id, {folders: newFolders}, (err, doc) => {
+			if(err) {
+				console.log(err)
+				return
+			}
+			console.log("updated user " + user.email + " with folder: " + folder)
+		})
+	})
+}
+
 app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 //app.post(api + '/infrastructure', async(req, res) => {
 	const infra = req.body
@@ -777,6 +803,7 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 	infra.storageAdaptorContainers = infra.storageAdaptorContainers || []
 	infra.initContainers = infra.initContainers || []
 	const clonedInfra = stripInfoFromInfra(infra)
+	clonedInfra.folders = req.user.folders
 
 	checkAvailableResources(infra).then(async deployNodes => {
 		if(infra.deployNode) {
@@ -804,6 +831,16 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 			} else {
 				console.log("[SSH] key already present: " + adaptor.host)
 			}
+
+			updateUserFolders(req.user, {
+				host: adaptor.host,
+				name: adaptor.name,
+				user: adaptor.user,
+				folder: adaptor.path,
+				type: "hpc_node",
+				access: [adaptor.type]
+			})
+
 
 			// create container descriptions
 			cntPort += 1
@@ -978,6 +1015,7 @@ const userSchema = mongoose.Schema({
 	staticPorts: Object,
 	credentials: Object
 })
+
 
 const User = mongoose.model('Users', userSchema)
 
