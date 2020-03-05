@@ -757,27 +757,39 @@ function stripInfoFromInfra(i) {
 }
 
 function updateUserFolders(user, folder) {
-	User.findById(user._id, (err, doc) => {
-		if(err) {
-			console.lof(err)
-			return
-		}
-		let newFolders = []
-		if(doc.folders) {
-			newFolders = doc.folders.map((f,i) => {
-				if(f.name == folder.name) {
-					return folder
-				} else return f
-			})
-		} else {
-			newFolders.push(folder)
-		}
-		User.findByIdAndUpdate(user._id, {folders: newFolders}, (err, doc) => {
+
+	return new Promise((resolve, reject) => {
+		User.findById(user._id, (err, doc) => {
 			if(err) {
-				console.log(err)
+				//console.log(err)
+				reject(err)
 				return
 			}
-			console.log("updated user " + user.email + " with folder: " + folder)
+			let newFolders = []
+			if(doc.folders) {
+				let sub = false
+				newFolders = doc.folders.map((f,i) => {
+					if(f.name == folder.name) {
+						sub = true
+						return folder
+					} else return f
+				})
+				if(!sub) {
+					newFolders.push(folder)
+				}
+				console.log("newFolders: ", newFolders)
+			} else {
+				newFolders.push(folder)
+			}
+			User.findByIdAndUpdate(user._id, {folders: newFolders}, (err, doc) => {
+				if(err) {
+					reject(err)
+					//console.log(err)
+					return
+				}
+				console.log("updated user " + user.email + " with folder: " + folder)
+				resolve(doc)
+			})
 		})
 	})
 }
@@ -832,14 +844,20 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				console.log("[SSH] key already present: " + adaptor.host)
 			}
 
-			updateUserFolders(req.user, {
-				host: adaptor.host,
-				name: adaptor.name,
-				user: adaptor.user,
-				folder: adaptor.path,
-				type: "hpc_node",
-				access: [adaptor.type]
-			})
+			try {
+				await updateUserFolders(req.user, {
+					host: adaptor.host,
+					name: adaptor.name,
+					user: adaptor.user,
+					folder: adaptor.path,
+					type: "hpc_node",
+					access: [adaptor.type]
+				})
+			} catch(err) {
+				console.log("error updating user info: ", err)
+				//infras[infra.name]['status'] = "error"
+				//infras[infra.name]['error'] = err
+			}
 
 
 			// create container descriptions
@@ -937,6 +955,14 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				c.env.push({
 					name: "INFRA",
 					value: encodeBase64(JSON.stringify(clonedInfra))
+				})
+				c.env.push({
+					name: "SSH_PRIVATE_KEY",
+					value: encodeBase64(req.user.keys.ssh.private)
+				})
+				c.env.push({
+					name: "SSH_PUBLIC_KEY",
+					value: encodeBase64(req.user.keys.ssh.public)
 				})
 		})
 		
