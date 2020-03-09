@@ -20,6 +20,8 @@ const promiseRetry = require('promise-retry');
 const moduleHolder = {};
 mongoose.set('useFindAndModify', false);
 
+const VERSION = "0.2.0"
+
 const cmdOptions = [
 	{ name: 'mongo', alias: 'm', type: String},
 	{ name: 'privateKey', alias: 'k', type: String},
@@ -436,6 +438,12 @@ function deleteAndCreateSecret(namespace, data, name) {
 			})
 		})
 }
+
+app.get(api + '/version', (req, res) => {
+	res.status(200).send({
+		version: VERSION
+	})
+})
 
 app.put(api + '/user', checkAdminToken, async(req, res) => {
 	
