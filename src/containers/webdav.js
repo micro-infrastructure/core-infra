@@ -3,6 +3,7 @@ const name = 'webdav'
 function handler(details) {	
 	let cmd = ""
 	const htpass = details.config.user + ":jsdav:" + md5(details.config.user + ":jsdav:" + details.config.pass)
+	cmd += "echo $HTDIGEST > /assets/htusers && "
 	if(!details.adaptors) details.adaptors = []
 	details.adaptors.map(a => {
 		const host = a.env.filter(e => {
