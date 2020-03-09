@@ -621,6 +621,23 @@ function filterServices(services) {
 	})
 }
 
+function getNamespaceDeployments(ns) {
+	return new Promise((resolve, reject) => {
+		kubeext.get('namespaces/' + ns + '/deployments/', (err, res) => {
+			if (err) {
+				console.log(err)
+				reject(err)
+				return
+			}
+			const deployments = res.items.map(d => {
+				return d.metadata.name
+			})
+			resolve(deployments)
+		})
+
+	})
+}
+
 app.get(api + '/infrastructure', checkToken, async(req, res) => {
 	const services = await getNamespaceServices(req.user.namespace)
 	const pods = await getNamespacePods(req.user.namespace)
@@ -645,9 +662,12 @@ app.delete(api + '/node/:id', async(req, res) => {
 })
 
 app.delete(api + '/infrastructure/:id', checkToken, async(req, res) => {
+	//const dep = await getNamespaceDeployments(req.user.namespace)
+	//console.log(dep)
 	const id = req.params.id
 	kubeext.delete('namespaces/' + req.user.namespace + '/deployments/' + id, (err, res) => {
 		if (err) console.log(err)
+	//	else console.log(res)
 	})
 	kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + id, (err, res) => {
 		if (err) console.log(err)
@@ -1022,8 +1042,18 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				// create k8s deployment
 				updateInfraStatus(infra.name, "deploying pod", deployment)
 
-				await kubeext.delete('namespaces/' + req.user.namespace + '/deployments', deployment)
-				await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
+				
+				const deployments = await getNamespaceDeployments(req.user.namespace)
+				if (deployments.includes(infra.name)) {
+					kubeext.delete('namespaces/' + req.user.namespace + '/deployments/' + infra.name, async (err, res) => {
+						if (err) console.log(err)
+						else {
+							await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
+						}
+					})
+				} else {
+					await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
+				}
 			//} catch (err) {
 			//	console.log("Error deploying: " + JSON.stringify(err))
 			//}
