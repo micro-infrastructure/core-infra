@@ -12,3 +12,7 @@ push: build
 deploy: push
 	kubectl delete -f core-infra.yaml 
 	kubectl create -f core-infra.yaml
+	kubectl get pods -n process-core
+
+log:
+	./log.fsh

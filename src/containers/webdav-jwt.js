@@ -43,7 +43,7 @@ function handler(details) {
 				"volumeMounts": [
 					{ "name": "shared-data", "mountPath": "/shared-data" }
 				],
-				"securityContext": {
+			"securityContext": {
 					"privileged": true,
 						"capabilities": {
 							"add": [ "SYS_ADMIN" ]

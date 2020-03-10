@@ -1,8 +1,36 @@
 const md5 = require('md5')
 const name = 'webdav'
-function handler(details) {	
-	let cmd = ""
+function handler(details) {
+
 	const htpass = details.config.user + ":jsdav:" + md5(details.config.user + ":jsdav:" + details.config.pass)
+	const env = []
+	const vol = []
+	env.push({ "name": "HTDIGEST", "value": htpass })
+	vol.push({ "name": "shared-data", "mountPath": "/shared-data" })
+
+	if(details.env) {
+		if(!Array.isArray(details.env)) {
+			// convert to array
+			Object.keys(details.env).forEach(k => {
+				env.push({
+					name: k,
+					value: details.env[k]
+				})
+			})
+		} else {
+			details.env.forEach(e => {
+				env.push(e)
+			})
+		}
+	}
+
+	if(details.volumes) {
+		details.volumes.forEach(v => {
+			vol.push(v)
+		})
+	}
+
+	let cmd = ""
 	cmd += "echo $HTDIGEST > /assets/htusers && "
 	if(!details.adaptors) details.adaptors = []
 	details.adaptors.map(a => {
@@ -27,12 +55,8 @@ function handler(details) {
 						"containerPort": details.containerPort
 					}
 				],
-				"env": [
-					{ "name": "HTDIGEST", "value": htpass }
-				],
-				"volumeMounts": [
-					{ "name": "shared-data", "mountPath": "/shared-data" }
-				],
+				"env": env,
+				"volumeMounts": vol,
 				"securityContext": {
 					"privileged": true,
 						"capabilities": {

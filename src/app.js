@@ -445,6 +445,7 @@ app.get(api + '/version', (req, res) => {
 	})
 })
 
+
 app.put(api + '/user', checkAdminToken, async(req, res) => {
 	
 	const user = req.body
@@ -476,10 +477,14 @@ app.put(api + '/user', checkAdminToken, async(req, res) => {
 					credentials: user.credentials
 				}).save()
 			} else {
+				const doc = results[0]
+				const newFolders = updateFolders(doc.folders || [], user.folders || [])
+				const newPorts = updateDict(doc.staticPorts || {}, user.staticPorts || {})
+				const newCredentials = updateDict(doc.credentials || {}, user.credentials || {})
 				User.findOneAndUpdate({email: user.email}, { 
-					folders: user.folders,
-					staticPorts: user.staticPorts,
-					credentials: user.credentials
+					folders: newFolders,
+					staticPorts: newPorts,
+					credentials: newCredentials
 				}, (err, doc) => {
 					if(err) {
 						console.log(err)
@@ -784,6 +789,37 @@ function stripInfoFromInfra(i) {
 	return c
 }
 
+function updateDict(ot, nt) {
+	Object.keys(nt).forEach(k => {
+		const v = nt[k]
+		ot[k] = v
+	})
+	return ot
+}
+
+function updateFolders(of, nf){
+	const nfht = {}
+	const ofht = {}
+	nf.filter(i => { return i }).forEach(i => {
+		nfht[i.name] = i
+	})
+	of.filter(i => { return i }).forEach(i => {
+		ofht[i.name]  = i
+	})
+
+	const subFolders = of.filter(i=>{return i}).map(f => {
+		if(nfht[f.name]){
+			return nfht[f.name]
+		} else return f
+	})
+
+	const newFolders = nf.filter(f => {
+		if(!ofht[f.name]) return f
+	})
+
+	return subFolders.concat(newFolders)
+}
+
 function updateUserFolders(user, folder) {
 
 	return new Promise((resolve, reject) => {
@@ -944,7 +980,8 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				// create mount
 				c.mountHost.forEach((mnt, i) => {
 					const isAuthorized = userFolders.some(f => {
-						return (f.host == infra.deployNode && mnt.hostPath == f.folder && f.type == "k8s_node")	
+						//return (f.host == infra.deployNode && mnt.hostPath == f.folder && f.type == "k8s_node")	
+						return (f.host == infra.deployNode && mnt.hostPath == f.folder)	
 					})
 					// check authorization
 					if(!isAuthorized) {
