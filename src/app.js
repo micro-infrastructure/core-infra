@@ -601,7 +601,9 @@ async function getNamespacePods(ns) {
 }
 
 function filterPods(pods) {
-	return pods.map(p => {
+	return pods.filter(p => {
+		return p.status.containerStatuses
+	}).map(p => {
 		const r = {}
 		r.name = p.metadata.name
 		r.containers = p.status.containerStatuses.map(c => {
