@@ -37,6 +37,10 @@ const cmdOptions = [
 const options = cmdArgs(cmdOptions)
 const config = (options.config) ? require(options.config) : require('./core-infra-config');
 
+if(!config.entryEndpoints) {
+	config.entryEndpoints = [ options.host, "sne-dtn-03.vlan7.uvalight.net"]
+}
+
 // load keys
 const privateKey = fs.readFileSync(options.privateKey, "utf-8")
 const publicKey = fs.readFileSync(options.publicKey, "utf-8")
@@ -623,7 +627,7 @@ function filterServices(services) {
 			type:  s.metadata.labels.type,
 			name:  s.metadata.name,
 			ports: s.spec.ports.map(p => p.nodePort),
-			host:  options.host
+			entryEndpoints:  config.entryEndpoints
 		}
 	})
 }
