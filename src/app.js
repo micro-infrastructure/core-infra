@@ -673,17 +673,25 @@ app.delete(api + '/node/:id', async(req, res) => {
 })
 
 app.delete(api + '/infrastructure/:id', checkToken, async(req, res) => {
-	//const dep = await getNamespaceDeployments(req.user.namespace)
-	//console.log(dep)
 	const id = req.params.id
-	kubeext.delete('namespaces/' + req.user.namespace + '/deployments/' + id, (err, res) => {
-		if (err) console.log(err)
-	//	else console.log(res)
+	const result = {
+		status: "OK",
+		errors: []
+	}
+	kubeext.delete('namespaces/' + req.user.namespace + '/deployments/' + id, (err, r) => {
+		if (err) {
+			result.status = "WITH_ERRORS"
+			result.errors.push(err)
+		}
+		res.status(200).send(result)
+		/*kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + id, (err, r) => {
+			if (err) {
+				result.status = "WITH_ERRORS"
+				result.errors.push(err)
+			}
+			res.status(200).send(result)
+		})*/
 	})
-	kubeapi.delete('namespaces/' + req.user.namespace + '/services/' + id, (err, res) => {
-		if (err) console.log(err)
-	})
-	res.status(200).send()
 })
 
 const getNextPort = function() {
