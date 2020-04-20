@@ -33,17 +33,19 @@ function handler(details) {
 	let cmd = ""
 	cmd += "echo $HTDIGEST > /assets/htusers && "
 	if(!details.adaptors) details.adaptors = []
-	details.adaptors.map(a => {
-		const host = a.env.filter(e => {
-			return e.name == "NAME"
+	if(details.config.mountStorageAdaptors) {
+		details.adaptors.map(a => {
+			const host = a.env.filter(e => {
+				return e.name == "NAME"
+			})
+			return {
+				host: host[0].value,
+				port: a.ports[0].containerPort
+			}
+		}).forEach(a => {
+			cmd += " echo $HTDIGEST > /assets/htusers && /bin/mkdir -p /data/" + a.host + " && echo \'http://localhost:" + a.port + " u p\' >> /etc/davfs2/secrets && mount -t davfs http://localhost:" + a.port + " /data/" + a.host + " && " 
 		})
-		return {
-			host: host[0].value,
-			port: a.ports[0].containerPort
-		}
-	}).forEach(a => {
-		cmd += " echo $HTDIGEST > /assets/htusers && /bin/mkdir -p /data/" + a.host + " && echo \'http://localhost:" + a.port + " u p\' >> /etc/davfs2/secrets && mount -t davfs http://localhost:" + a.port + " /data/" + a.host + " && " 
-	})
+	}
 
 	cmd += " cd /root/webdavserver && node webdavserver-ht.js -p " + details.containerPort
 	return {

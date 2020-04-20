@@ -775,7 +775,7 @@ function updateInfraStatus(name, status, details) {
 
 function stripInfoFromInfra(i) {
 	const c = JSON.parse(JSON.stringify(i))
-	const allowFields = ['name', 'type', 'host', 'path']
+	const allowFields = ['name', 'type', 'host', 'path', 'user']
 	c.storageAdaptorContainers.forEach(s => {
 		const fieldsToRemove = []
 		Object.keys(s).forEach(k => {
@@ -960,7 +960,10 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 			return u
 		})
 
-		const sshContainers = await Promise.all(sshPromises)
+		let sshContainers = await Promise.all(sshPromises)
+		sshContainers = sshContainers.filter(c => {
+			return c
+		})
 
 		const ports = {}
 		async function processContainers(c, index) {
@@ -974,6 +977,7 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 			c.env = c.env || {}
 			c.containerPort = c.port ||  getNextPort()
 			ports[c.name] = c.containerPort
+
 			const u = moduleHolder[c.type](c)
 			if(c.service) {
 				const s = createService({
