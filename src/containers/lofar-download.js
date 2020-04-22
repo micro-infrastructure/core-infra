@@ -1,4 +1,4 @@
-const name = 'srm2local'
+const name = 'lofar-download'
 
 function encodeBase64(s) {
 	return new Buffer(s).toString('base64')
@@ -10,7 +10,7 @@ function handler(details) {
 			'publicKey': encodeBase64(details.user.keys.raw.public)
 		}
 	}
-	const image = details.image || "microinfrastructure/adaptor-srm2local"
+	const image = details.image || "microinfrastructure/adaptor-lofar-download"
 	const users = encodeBase64(JSON.stringify(user))
 
 	const o = {
@@ -18,20 +18,19 @@ function handler(details) {
 		"image": image,
 		"imagePullPolicy": "Always",
 		"ports": [
-			{
-				"containerPort": details.containerPort
-			}
+			{ "containerPort": details.containerPort }
 		],
 		"env": [
 			{ "name": "AMQP_HOST", "value": "127.0.0.1" },
 			{ "name": "JWTUSERS", "value": users },
-			{ "name": "PORT", "value": details.containerPort }
+			{ "name": "PORT", "value": "" + details.containerPort + "" }
 		],
 		"volumeMounts": [
+			{ "name": "ssh-key", "mountPath": "/ssh", "readOnly": true },
 			{ "name": "shared-data", "mountPath": "/shared-data" }
 		],
 		"command": ["/bin/sh", "-c"],
-		"args": ["sleep 15 && python src/app.py"]
+		"args": ["sleep 15 && python3 src/__main__.py"]
 	}
 
 	if (details.env) {
