@@ -23,7 +23,7 @@ function handler(details) {
 		"env": [
 			{ "name": "AMQP_HOST", "value": "127.0.0.1" },
 			{ "name": "JWTUSERS", "value": users },
-			{ "name": "PORT", "value": details.containerPort }
+			{ "name": "PORT", "value": "" + details.containerPort + "" }
 		],
 		"volumeMounts": [
 			{ "name": "shared-data", "mountPath": "/shared-data" }
