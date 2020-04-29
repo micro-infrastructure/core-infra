@@ -17,10 +17,11 @@ const forge = require('node-forge')
 const path_module = require('path');
 const rp = require('request-promise');
 const promiseRetry = require('promise-retry');
+const PersistentObject = require('persistent-cache-object');
 const moduleHolder = {};
 mongoose.set('useFindAndModify', false);
 
-const VERSION = "0.2.0"
+const VERSION = "0.2.1"
 
 const cmdOptions = [
 	{ name: 'mongo', alias: 'm', type: String},
@@ -36,6 +37,7 @@ const cmdOptions = [
 
 const options = cmdArgs(cmdOptions)
 const config = (options.config) ? require(options.config) : require('./core-infra-config');
+
 
 if(!config.entryEndpoints) {
 	config.entryEndpoints = [ options.host, "sne-dtn-03.vlan7.uvalight.net"]
@@ -82,7 +84,8 @@ const kubeext = k8s.api({
 })
 
 const nodes = {}
-const infras = {}
+const infras = new PersistentObject('./infras.db');
+const deploymentDb = new PersistentObject('./deployments.db');
 
 kubeapi.get('namespaces/process-core/pods', (err, data) => {
 	if (err) throw err
@@ -604,6 +607,23 @@ async function getNamespacePods(ns) {
 	return res
 }
 
+function getNamespaceDeployments(ns) {
+	return new Promise((resolve, reject) => {
+		kubeext.get('namespaces/' + ns + '/deployments/', (err, res) => {
+			if (err) {
+				console.log(err)
+				reject(err)
+				return
+			}
+			const deployments = res.items.map(d => {
+				return d.metadata.name
+			})
+			resolve(deployments)
+		})
+
+	})
+}
+
 function filterPods(pods) {
 	return pods.filter(p => {
 		return p.status.containerStatuses
@@ -632,22 +652,43 @@ function filterServices(services) {
 	})
 }
 
-function getNamespaceDeployments(ns) {
-	return new Promise((resolve, reject) => {
-		kubeext.get('namespaces/' + ns + '/deployments/', (err, res) => {
-			if (err) {
-				console.log(err)
-				reject(err)
-				return
-			}
-			const deployments = res.items.map(d => {
-				return d.metadata.name
-			})
-			resolve(deployments)
-		})
 
-	})
-}
+app.post(api + '/restart', checkToken, async(req, res) => {
+	const infra = req.body
+	if(!infra.name) {
+		res.status(404).send()
+		return
+	}
+	const deployment = deploymentDb[infra.name]
+	if(!deployment) {
+		res.status(404).send()
+		return
+	}
+
+	try {
+		// create k8s deployment
+		updateInfraStatus(infra.name, "deploying pod", deployment)
+		
+		const deployments = await getNamespaceDeployments(req.user.namespace)
+		if (deployments.includes(infra.name)) {
+			kubeext.delete('namespaces/' + req.user.namespace + '/deployments/' + infra.name, async (err, r) => {
+				if (err) 	console.log(err)
+				else {
+					await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
+					console.log("[INFO] restarted infra: " + infra.name)
+					res.status(200).send("Ok")
+				}
+			})
+		} else {
+			await kubeext.post('namespaces/' + req.user.namespace + '/deployments', deployment)
+			console.log("[INFO] restarted infra: " + infra.name)
+			res.status(200).send("Ok")
+		}
+	} catch(err) {
+		res.status(500).send(err)
+	}
+
+})
 
 app.get(api + '/infrastructure', checkToken, async(req, res) => {
 	const services = await getNamespaceServices(req.user.namespace)
@@ -769,6 +810,9 @@ function checkAvailableResources(infra) {
 }
 
 function updateInfraStatus(name, status, details) {
+	if(!infras[name]) {
+		infras[name] = {}
+	}
 	infras[name][status] = status
 	infras[name][details] = details
 }
@@ -1093,6 +1137,9 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 
 				yml += YAML.stringify(deployment)
 				console.log("deployment: ", yml)
+
+				// save locally so it cn be restarted
+				deploymentDb[infra.name] = deployment
 				
 				// create k8s deployment
 				updateInfraStatus(infra.name, "deploying pod", deployment)
