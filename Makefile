@@ -1,13 +1,13 @@
 .PHONY: all
 
 build:
-	docker build -t recap/process-core-infra:v0.1 .
+	docker build -t microinfrastructure/process-core-infra:v0.2 .
 
 run: build
-	docker run -it recap/process-core-infra:v0.1 /bin/sh
+	docker run -it microinfrastructure/process-core-infra:v0.2 /bin/sh
 
 push: build
-	docker push recap/process-core-infra
+	docker push microinfrastructure/process-core-infra
 
 deploy: push
 	kubectl delete -f core-infra.yaml 

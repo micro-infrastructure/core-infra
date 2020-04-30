@@ -51,7 +51,7 @@ spec:
         - proxy
         - --port=8080
       - name: web
-        image: recap/process-core-infra:v0.1
+        image: microinfrastructure/process-core-infra:v0.2
         volumeMounts:
         - name: vault
           mountPath: /assets
