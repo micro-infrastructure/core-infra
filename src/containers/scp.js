@@ -24,7 +24,7 @@ function handler(details) {
 
 	return {
 				"name": details.name,
-				"image": "recap/process-scp2scp:v0.1",
+				"image": "microinfrastructure/service-copy:v0.2",
 				"imagePullPolicy": "Always",
 				"ports": [
 					{
