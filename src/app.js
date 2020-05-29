@@ -94,6 +94,11 @@ kubeapi.get('namespaces/process-core/pods', (err, data) => {
 	})
 })
 
+function md5sum(s) {
+	const hash = crypto.createHash('md5').update(s).digest('hex');
+	return hash;
+}
+
 function waitForNodeUp(name) {
 	console.log("waiting for node " + name + " to come up.")
 	return new Promise((resolve, reject) => {
@@ -398,7 +403,11 @@ function checkToken(req, res, next) {
 				res.status(403).send()
 				return
 			}
-			req['user'] = results[0]
+			const u = results[0]
+			if(!u.keys.ssh.idFile) {
+				u.keys = updateKeys(u.keys)
+			}
+			req['user'] = u
 			next()
 		})
 	})
@@ -488,10 +497,12 @@ app.put(api + '/user', checkAdminToken, async(req, res) => {
 				const newFolders = updateFolders(doc.folders || [], user.folders || [])
 				const newPorts = updateDict(doc.staticPorts || {}, user.staticPorts || {})
 				const newCredentials = updateDict(doc.credentials || {}, user.credentials || {})
+				const updatedKeys = updateKeys(doc.keys)
 				User.findOneAndUpdate({email: user.email}, { 
 					folders: newFolders,
 					staticPorts: newPorts,
-					credentials: newCredentials
+					credentials: newCredentials,
+					keys: updatedKeys
 				}, (err, doc) => {
 					if(err) {
 						console.log(err)
@@ -575,7 +586,7 @@ function copySshId(adaptor) {
 					console.log("[SSH] added public key to: " + adaptor.host)
 					done(resolve)
 				})
-				sftp.writeFile('.ssh/process_id_rsa', adaptor.keys.private + '\n', {mode: '0600'}, (err) => {
+				sftp.writeFile('.ssh/' + adaptor.keys.idFile, adaptor.keys.private + '\n', {mode: '0600'}, (err) => {
 					if (err) {
 						reject(err)
 						return
@@ -761,6 +772,11 @@ function checkAvailableResources(infra) {
 			return
 		}
 
+		if(!config.cloudify) {
+			resolve([])
+			return
+		}
+
 		o = {
 			blueprint_id: config.cloudify.blueprintId,
 			inputs: {
@@ -918,6 +934,7 @@ function updateUserFolders(user, folder) {
 
 app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 //app.post(api + '/infrastructure', async(req, res) => {
+	console.log("FSDF")
 	const infra = req.body
 
 	let cntPort = 3001
@@ -1091,6 +1108,10 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 					name: "SSH_PUBLIC_KEY",
 					value: encodeBase64(req.user.keys.ssh.public)
 				})
+				c.env.push({
+					name: "ID_RSA_FILENAME",
+					value: encodeBase64(req.user.keys.ssh.idFile)
+				})
 		})
 		
 		// create init containers
@@ -1198,19 +1219,31 @@ async function checkMongo() {
 	})
 }
 
+function updateKeys(k) {
+	if(k.ssh.idFile) return k
+	const privateSshKeyHash = md5sum(k.ssh.private)
+	k.ssh.idFile = "process_id_rsa_" + privateSshKeyHash
+	return k
+}
+
 function generateKeys(user) {
 	return new Promise((resolve, reject) => {
 		const pair = keypair();
 		const publicSshKey = forge.ssh.publicKeyToOpenSSH(forge.pki.publicKeyFromPem(pair.public), user.user + '@process-eu.eu')
 		const privateSshKey = forge.ssh.privateKeyToOpenSSH(forge.pki.privateKeyFromPem(pair.private), user.user + '@process-eu.eu')
+		const privateSshKeyHash = md5sum(privateSshKey)
+		const idRsaFilename = "process_id_rsa_" + privateSshKeyHash
+
 		jwt.sign({
-			email: user.email
+			email: user.email,
+			idFile: idRsaFilename
 		}, pair.private, {algorithm: 'RS256'}, (err, token) => {
 			if (err) reject(err)
 			resolve({
 				ssh: {
 					public: publicSshKey,
-					private: pair.private
+					private: pair.private,
+					idFile: idRsaFilename
 				},
 				raw: pair,
 				token: token
@@ -1296,18 +1329,22 @@ function getCloudifyDeployments() {
 	return rp(options)
 }
 
-promiseRetry((retry, number) => {
-	console.log('retrying to contact cloudify at: ', config.cloudify.uri)
-	return getCloudifyDeployments().catch(retry)
-}).then(res => {
-	console.log('connected to cloudify: ', config.cloudify.uri)
-	// console.log('current deployments: ', res)
-	res.items.forEach(d => {
-		cloudifyDeployments[d.id] = d
-		console.log('found cloudify deployment: ', d.id)
-		//console.log(d)
+if(config.cloudify) {
+	promiseRetry((retry, number) => {
+		console.log('retrying to contact cloudify at: ', config.cloudify.uri)
+		return getCloudifyDeployments().catch(retry)
+	}).then(res => {
+		console.log('connected to cloudify: ', config.cloudify.uri)
+		// console.log('current deployments: ', res)
+		res.items.forEach(d => {
+			cloudifyDeployments[d.id] = d
+			console.log('found cloudify deployment: ', d.id)
+			//console.log(d)
+		})
 	})
-})
+} else {
+	console.log("[INFO] skipping cloudify check.")
+}
 
 // load container handlers
 loadModules('./containers')
