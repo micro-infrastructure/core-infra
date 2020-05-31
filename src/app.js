@@ -69,7 +69,7 @@ mongoose.connect(url)
 const db = mongoose.connection
 db.on('error', console.error.bind(console, "conn error"))
 db.once('open', () => {
-	console.log("mongodb ok");
+	console.log("[INFO] mongodb ok");
 })
 
 // check k8s
@@ -90,7 +90,7 @@ const deploymentDb = new PersistentObject('./deployments.db');
 kubeapi.get('namespaces/process-core/pods', (err, data) => {
 	if (err) throw err
 	data.items.forEach(d => {
-		console.log("namespace: process-core, pod: " + d.metadata.name);
+		console.log("[INFO]	namespace: process-core, pod: " + d.metadata.name);
 	})
 })
 
@@ -100,7 +100,7 @@ function md5sum(s) {
 }
 
 function waitForNodeUp(name) {
-	console.log("waiting for node " + name + " to come up.")
+	console.log("[INFO] waiting for node " + name + " to come up.")
 	return new Promise((resolve, reject) => {
 		const interval = setInterval(() => {
 			kubeapi.get('nodes', (err, data) => {
@@ -137,7 +137,7 @@ async function removeNode(id) {
 		if(n.indexOf(id) > -1) return n
 	})
 	if(filteredNodes.length > 1) {
-		console.log("[warning] not removing nodes due to multiple matches for " + id + " " + filteredNodes)
+		console.log("[WARNING] not removing nodes due to multiple matches for " + id + " " + filteredNodes)
 		return
 	}
 	if(!isEmpty(filteredNodes)) {
@@ -165,16 +165,16 @@ function updateAndCleanNodes(id) {
 							}
 						}
 						// remove node from k8s
-						console.log("removing node: " + nodeName)
+						console.log("[INFO] removing node: " + nodeName)
 						delete nodes[nodeName]
 						kubeapi.delete('nodes/' + nodeName, (err, res) => {
 							if(err) {
-								console.log('err: ', err)
+								console.log('[ERROR] error removing node: ', err)
 								return
 							}
 						})
 					} else {
-						console.log("found k8s node: " + nodeName + ", status " + c.status);
+						console.log("[INFO] found k8s node: " + nodeName + ", status " + c.status);
 					}
 				}
 			})
@@ -444,7 +444,7 @@ function deleteAndCreateSecret(namespace, data, name) {
 			kubeapi.delete('namespaces/' + namespace + '/secrets/' + sName, (err) => {
 				if (err) {
 					if (!(err.reason == 'NotFound')) {
-						console.log(err)
+						console.log("[ERROR] error with creating secret: ", err)
 					}
 				}
 				kubeapi.post('namespaces/' + namespace + '/secrets', createSecret(data), (err, result) => {
@@ -482,7 +482,7 @@ app.put(api + '/user', checkAdminToken, async(req, res) => {
 					email: user.email,
 					user: iuser
 				})
-				console.log(keys)
+				//console.log(keys)
 				// create user mongo entry
 				new User({
 					email: user.email,
@@ -492,6 +492,7 @@ app.put(api + '/user', checkAdminToken, async(req, res) => {
 					staticPorts: user.staticPorts,
 					credentials: user.credentials
 				}).save()
+				console.log("[INFO] created new user: ", user.email)
 			} else {
 				const doc = results[0]
 				const newFolders = updateFolders(doc.folders || [], user.folders || [])
@@ -508,7 +509,7 @@ app.put(api + '/user', checkAdminToken, async(req, res) => {
 						console.log(err)
 						return
 					}
-					console.log("updated user: " + user.email)
+					console.log("[INFO] updated user: " + user.email)
 				})
 				keys = results[0].keys
 			}
@@ -613,7 +614,7 @@ async function getNamespaceServices(ns) {
 async function getNamespacePods(ns) {
 	const res = await kubeapi.get('namespaces/' + ns + '/pods')
 	res.items.forEach(d => {
-		console.log("namespace: " + ns + ", pod: " + d.metadata.name);
+		console.log("[INFO] namespace: " + ns + ", pod: " + d.metadata.name);
 	})
 	return res
 }
@@ -718,7 +719,7 @@ app.get(api + '/infrastructure', checkToken, async(req, res) => {
 
 app.delete(api + '/node/:id', async(req, res) => {
 	const id = req.params.id
-	console.log("deleting node " + id)
+	console.log("[INFO] deleting node " + id)
 	deleteCloudifyDeployment(id)
 	removeNode(id)
 	res.status(200).send()
@@ -790,7 +791,7 @@ function checkAvailableResources(infra) {
 			getCloudifyDeployments().then(res => {
 				res.items.forEach(d => {
 					cloudifyDeployments[d.id] = d
-					console.log('found cloudify deployment: ', d.id)
+					console.log('[INFO] found cloudify deployment: ', d.id)
 				})
 				installCloudifyDeployment(name).then(res => {
 					console.log(res)
@@ -801,13 +802,13 @@ function checkAvailableResources(infra) {
 		}
 
 		createCloudifyDeployment(name, o).then(res => {
-			console.log("installing node ", name)
+			console.log("[INFO] installing node ", name)
 			setTimeout(() => {
 				install()
 			}, 10000)
 		}).catch(err => {
 			if (err instanceof AlreadyExistsError) {
-				console.log("installing node ", name)
+				console.log("[INFO] installing node ", name)
 				setTimeout(() => {
 					install()
 				}, 10000)
@@ -817,7 +818,7 @@ function checkAvailableResources(infra) {
 		})
 		
 		waitForNodeUp(infra.name).then(n => {
-			console.log("node up: ", n)
+			console.log("[INFO] node up: ", n)
 			resolve(n)
 		}).catch(err => {
 			reject("node up error")
@@ -915,7 +916,7 @@ function updateUserFolders(user, folder) {
 				if(!sub) {
 					newFolders.push(folder)
 				}
-				console.log("newFolders: ", newFolders)
+				console.log("[INFO] newFolders: ", newFolders)
 			} else {
 				newFolders.push(folder)
 			}
@@ -925,7 +926,7 @@ function updateUserFolders(user, folder) {
 					//console.log(err)
 					return
 				}
-				console.log("updated user " + user.email + " with folder: " + folder)
+				console.log("[INFO] updated user " + user.email + " with folder: " + folder)
 				resolve(doc)
 			})
 		})
@@ -934,7 +935,6 @@ function updateUserFolders(user, folder) {
 
 app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 //app.post(api + '/infrastructure', async(req, res) => {
-	console.log("FSDF")
 	const infra = req.body
 
 	let cntPort = 3001
@@ -993,7 +993,7 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 					access: [adaptor.type]
 				})
 			} catch(err) {
-				console.log("error updating user info: ", err)
+				console.log("[ERROR] error updating user info: ", err)
 				//infras[infra.name]['status'] = "error"
 				//infras[infra.name]['error'] = err
 			}
@@ -1064,7 +1064,7 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 					})
 					// check authorization
 					if(!isAuthorized) {
-						console.log(userNamespace + " not authorized to mount " + mnt.hostPath + " on " + infra.deployNode)
+						console.log("[INFO] " + userNamespace + " not authorized to mount " + mnt.hostPath + " on " + infra.deployNode)
 						return;
 					}
 					const vol = {
@@ -1157,7 +1157,7 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				}, volumes, containers, initContainers)
 
 				yml += YAML.stringify(deployment)
-				console.log("deployment: ", yml)
+				console.log("[INFO] deployment: ", yml)
 
 				// save locally so it cn be restarted
 				deploymentDb[infra.name] = deployment
@@ -1210,12 +1210,12 @@ async function checkMongo() {
 	const user = config.mongodb.user
 	const pwd = config.mongodb.pwd
 	const url = "mongodb://" + user + ":" + pwd + "@" + options.mongo + ":27017/process"
-	console.log(url)
+	//console.log(url)
 	mongoose.connect(url)
 	const db = mongoose.connection
 	db.on('error', console.error.bind(console, "conn error"))
 	db.once('open', () => {
-		console.log('connected')
+		console.log('[INFO] connected to mongodb')
 	})
 }
 
@@ -1331,14 +1331,14 @@ function getCloudifyDeployments() {
 
 if(config.cloudify) {
 	promiseRetry((retry, number) => {
-		console.log('retrying to contact cloudify at: ', config.cloudify.uri)
+		console.log('[INFO] retrying to contact cloudify at: ', config.cloudify.uri)
 		return getCloudifyDeployments().catch(retry)
 	}).then(res => {
-		console.log('connected to cloudify: ', config.cloudify.uri)
+		console.log('[INFO] connected to cloudify: ', config.cloudify.uri)
 		// console.log('current deployments: ', res)
 		res.items.forEach(d => {
 			cloudifyDeployments[d.id] = d
-			console.log('found cloudify deployment: ', d.id)
+			console.log('[INFO] found cloudify deployment: ', d.id)
 			//console.log(d)
 		})
 	})
@@ -1346,18 +1346,26 @@ if(config.cloudify) {
 	console.log("[INFO] skipping cloudify check.")
 }
 
-// load container handlers
-loadModules('./containers')
-watchModules('./containers')
 
-// generate debug token
-const myToken = generateToken("admin", "test")
-console.log(myToken)
+try {
+	// load container handlers
+	loadModules('./containers')
+	watchModules('./containers')
+
+	// generate debug token
+	const adminToken = generateToken("admin", "default")
+	console.log("[INFO] admin token: ", adminToken)
+	fs.writeFileSync("./adminToken", adminToken)
+}
+catch(err) {
+	console.log("[ERROR] error booting up: ", err)
+}
+
 
 // start HTTPS server
 //console.log("Starting secure server...")
 //httpsServer.listen(options.port || 4243)
 
 // start HTTP server
-console.log("Starting server...")
+console.log("[INFO] Starting server...")
 httpServer.listen(options.port || 4200)
