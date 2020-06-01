@@ -1052,10 +1052,18 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				ports[c.name] = c.service.targetPort || c.containerPort
 				services.push(s)
 			}
+
+			/*if(c.sharedMountPath) {
+				u.volumeMounts.push({
+					name: "shared-data",
+					mountPath: c.sharedMountPath
+				})
+			}*/
+
 			if(c.mountHost && infra.deployNode) {
 				const userNamespace = req.user.namespace
 				const userFolders = req.user.folders || []
-				
+			
 				// create mount
 				c.mountHost.forEach((mnt, i) => {
 					const isAuthorized = userFolders.some(f => {
@@ -1157,7 +1165,7 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				}, volumes, containers, initContainers)
 
 				yml += YAML.stringify(deployment)
-				console.log("[INFO] deployment: ", yml)
+				//console.log("[INFO] deployment: ", yml)
 
 				// save locally so it cn be restarted
 				deploymentDb[infra.name] = deployment

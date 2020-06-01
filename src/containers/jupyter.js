@@ -1,6 +1,10 @@
 const crypto = require('crypto')
 const name = 'jupyter'
 
+var isEmpty = function(obj) {
+  return Object.keys(obj).length === 0;
+}
+
 function jupyterPasswd(password) {
 	const shasum = crypto.createHash('sha1')
 	const saltLen = 12

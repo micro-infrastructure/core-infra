@@ -4,6 +4,10 @@ function encodeBase64(s) {
 	return new Buffer(s).toSting('base64')
 }
 
+var isEmpty = function(obj) {
+  return Object.keys(obj).length === 0;
+}
+
 function handler(details) {
 	let cmd = ""
 	const user = {
