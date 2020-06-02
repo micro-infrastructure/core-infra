@@ -7,10 +7,10 @@ var isEmpty = function(obj) {
 
 function handler(details) {
 	let cmd = ""
-	if(details.dataPath) {
+	if(details.config && details.config.mountStorageAdaptors) {
 		details.privileged = true
 		details.capabilities = ["SYS_ADMIN"]
-		const m = details.dataPath
+		const m = details.config.dataPath || "/data"
 		details.adaptors.map(a => {
 			const host = a.env.filter(e => {
 				return e.name == "NAME"
