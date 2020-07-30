@@ -300,7 +300,7 @@ function createVolume(details) {
 
 function createDeployment(details, volumes, containers, initContainers) {
 	const nodeSelector = (!isEmpty(details.deployNodes)) ? { 'kubernetes.io/hostname': details.deployNodes[0] }  : null
-	return {
+	const deployment = {
 		kind: "Deployment",
 		apiVersion: "apps/v1",
 		metadata: {
@@ -316,7 +316,7 @@ function createDeployment(details, volumes, containers, initContainers) {
 					app: details.name
 				  }
 				},
-				template: {
+			template: {
 				  metadata: {
 					labels: {
 					  app: details.name
@@ -332,9 +332,16 @@ function createDeployment(details, volumes, containers, initContainers) {
 					containers: containers,
 					initContainers: initContainers
 				  }
-				}
+			}
 		}
 	}
+	if(deatils.runAsUser) {
+		deployment.spec.template.spec.securityContext = {
+			runsAsUser: details.runAsUser,
+			runAsGroup: details.runAsGroup
+		}
+	}
+	return deployment
 }
 
 function createService(details) {
@@ -1067,8 +1074,9 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				// create mount
 				c.mountHost.forEach((mnt, i) => {
 					const isAuthorized = userFolders.some(f => {
+						const h = f.alternateHostname || f.host
 						//return (f.host == infra.deployNode && mnt.hostPath == f.folder && f.type == "k8s_node")	
-						return (f.host == infra.deployNode && mnt.hostPath == f.folder)	
+						return (h == infra.deployNode && mnt.hostPath == f.folder)	
 					})
 					// check authorization
 					if(!isAuthorized) {
@@ -1159,13 +1167,15 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 				// generate k8s YAML deployment
 				const deployment = createDeployment({
 					name: infra.name,
+					runAsUser: infra.runAsUser,
+					runAsGroup: infra.runAsGroup,
 					namespace: req.user.namespace,
 					location: infra.location,
 					deployNodes: deployNodes
 				}, volumes, containers, initContainers)
 
 				yml += YAML.stringify(deployment)
-				//console.log("[INFO] deployment: ", yml)
+				console.log("[INFO] deployment: ", yml)
 
 				// save locally so it cn be restarted
 				deploymentDb[infra.name] = deployment

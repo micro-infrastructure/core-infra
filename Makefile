@@ -9,7 +9,7 @@ run: build
 push: build
 	docker push microinfrastructure/process-core-infra
 
-deploy: push
+deploy: 
 	kubectl delete -f core-infra.yaml 
 	kubectl create -f core-infra.yaml
 	kubectl get pods -n process-core
