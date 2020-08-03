@@ -335,9 +335,9 @@ function createDeployment(details, volumes, containers, initContainers) {
 			}
 		}
 	}
-	if(deatils.runAsUser) {
+	if(details.runAsUser) {
 		deployment.spec.template.spec.securityContext = {
-			runsAsUser: details.runAsUser,
+			runAsUser: details.runAsUser,
 			runAsGroup: details.runAsGroup
 		}
 	}
