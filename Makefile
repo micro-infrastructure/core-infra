@@ -14,6 +14,9 @@ deploy:
 	kubectl create -f core-infra.yaml
 	kubectl get pods -n process-core
 
+watch: 
+	watch "kubectl get pods -n process-core"
+
 deploy-dev: push
 	kubectl delete -f core-infra-dev.yaml 
 	kubectl create -f core-infra-dev.yaml

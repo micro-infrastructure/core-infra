@@ -21,7 +21,7 @@ const PersistentObject = require('persistent-cache-object');
 const moduleHolder = {};
 mongoose.set('useFindAndModify', false);
 
-const VERSION = "0.2.1"
+const VERSION = "0.2.2"
 
 const cmdOptions = [
 	{ name: 'mongo', alias: 'm', type: String},
@@ -415,6 +415,7 @@ function checkToken(req, res, next) {
 				u.keys = updateKeys(u.keys)
 			}
 			req['user'] = u
+			req['token'] = token
 			next()
 		})
 	})
@@ -437,6 +438,7 @@ function checkAdminToken(req, res, next) {
 			return
 		}
 		req['user'] = decoded.user
+		req['token'] = token
 		next()
 	})
 }
@@ -1048,7 +1050,28 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 
 			const u = moduleHolder[c.type](c)
 			if(c.service) {
-				const s = createService({
+				if(!c.service.forPorts){
+					c.service.forPorts = [{ 'name': '', 'port': c.containerPort}]
+				}
+				c.service.forPorts.forEach(p => {
+					const serviceName = (p.name) ? c.name + '-' + p.name : c.name
+					const s = createService({
+						name: serviceName,
+						iname: infra.name,
+						namespace: req.user.namespace,
+						targetPort: p.port,
+						type: c.type,
+						staticPorts: req.user.staticPorts || {}
+					})
+						//targetPort: c.service.targetPort || c.containerPort,
+					ports[serviceName] = c.service.targetPort || c.containerPort
+					services.push(s)
+				})
+				Object.keys(req.user.staticPorts).forEach(k => {
+					v = req.user.staticPorts[k]
+					c.env[k] = v
+				})
+				/*const s = createService({
 					name: c.name,
 					iname: infra.name,
 					namespace: req.user.namespace,
@@ -1057,7 +1080,7 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 					staticPorts: req.user.staticPorts || {}
 				})
 				ports[c.name] = c.service.targetPort || c.containerPort
-				services.push(s)
+				services.push(s)*/
 			}
 
 			/*if(c.sharedMountPath) {
@@ -1111,6 +1134,10 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 						name: k.toUpperCase() + "_HOST",
 						value: "127.0.0.1:" + v
 					})
+				})
+				c.env.push({
+					name: "TOKEN",
+					value: req.token
 				})
 				c.env.push({
 					name: "INFRA",
