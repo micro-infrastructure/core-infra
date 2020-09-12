@@ -1140,6 +1140,10 @@ app.post(api + '/infrastructure', [checkToken], async(req, res) => {
 					value: req.token
 				})
 				c.env.push({
+					name: "PROCESS_CORE_API",
+					value: options.host + ":" + 30000
+				})
+				c.env.push({
 					name: "INFRA",
 					value: encodeBase64(JSON.stringify(clonedInfra))
 				})
