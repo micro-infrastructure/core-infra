@@ -21,7 +21,7 @@ const PersistentObject = require('persistent-cache-object');
 const moduleHolder = {};
 mongoose.set('useFindAndModify', false);
 
-const VERSION = "0.2.2"
+const VERSION = "0.2.4"
 
 const cmdOptions = [
 	{ name: 'mongo', alias: 'm', type: String},
